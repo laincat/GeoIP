@@ -55,7 +55,18 @@ jobs:
           # 不会改变产物校验和（reproducible-builds 的标准做法）。
           echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
 
-          echo "TAG_NAME=$(date -u +%Y%m%d%H%M)" >> "$GITHUB_ENV"
+          # ── Release 用**固定 tag**，不再每版一个 tag ──────────────────────
+          # 原来是 TAG_NAME=$(date -u +%Y%m%d%H%M)，于是每天 2 次构建就多出
+          # 2 个 tag + 2 个 release，几年下来 tags 页面堆了 1409 个（2026-09-17
+          # 实测）。改成固定 tag 后：release 只有唯一一个，每次构建**覆盖同名
+          # 附件**（`softprops/action-gh-release` 的 `overwrite_files` 默认就是
+          # true），`releases/latest/download/<file>` 依旧永远指向最新一版。
+          # ⇒ 「一版一地址」变成「一个地址，内容滚动」。
+          echo "RELEASE_TAG=geoip" >> "$GITHUB_ENV"
+
+          # 构建时间戳仍然要留着 —— 但只作为「版本号」写进 version 文件
+          # 与 Release 正文，不再当 tag 用。
+          echo "BUILD_STAMP=$(date -u +%Y%m%d%H%M)" >> "$GITHUB_ENV"
         shell: bash
 
       - name: Download IPInfo country data
@@ -152,7 +163,7 @@ jobs:
           set -euo pipefail
           cd ./output
           sha256sum Country.mmdb > Country.mmdb.sha256sum
-          printf '%s\n' "${TAG_NAME}" > version
+          printf '%s\n' "${BUILD_STAMP}" > version
           cat Country.mmdb.sha256sum
           cat version
 
@@ -175,7 +186,7 @@ jobs:
           git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -q -b release
           git add -A
-          git commit -q -m "${TAG_NAME}"
+          git commit -q -m "${BUILD_STAMP}"
 
           git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push -f origin release
@@ -186,9 +197,10 @@ jobs:
       # 从头到尾没调用过 Releases API —— 推分支 ≠ 建 Release，两者是独立的
       # 东西。Releases API 生成的 Release 对象才带附件和 releases/latest 指针。
       #
-      # tag 用 build 阶段算好的时间戳（如 202609170628），每天两个 tag。
-      # `make_latest: true` 让 GitHub 把 releases/latest 指到这一版，
-      # 于是下游永远只需要订阅一个固定地址：
+      # tag 是**固定**的 `geoip`（见 Set variables 的说明），不是每版一个。
+      # release 已存在时本 action 会**更新**它；附件同名会被覆盖
+      # （`overwrite_files` 默认 true）。于是 releases 页面永远只有一条，
+      # tags 页面只有一个 tag，下游地址也恒定：
       #     https://github.com/laincat/GeoIP/releases/latest/download/Country.mmdb
       #
       # 注意这一步**不依赖** release 分支：附件直接来自 ./output 里的文件。
@@ -199,16 +211,22 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ env.TAG_NAME }}
-          name: ${{ env.TAG_NAME }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: GeoIP 产物（滚动更新）
           body: |
             Country.mmdb —— GeoLite2-Country 结构 + 类别覆盖（CLOUDFLARE / GOOGLE /
             TELEGRAM / NETFLIX / PRIVATE / CN 等），由 IPInfo 免费 country.csv 与
             iptoasn.com 构建。
 
+            本 Release 的 tag 固定为 `geoip`，**每次构建覆盖同名附件** ——
+            所以这里永远只有一条 Release、一个 tag，内容滚动更新。
+            （旧的历史 tag 已于 2026-09-17 清理。）
+
             固定下载地址（永远指向最新一版）：
 
             https://github.com/laincat/GeoIP/releases/latest/download/Country.mmdb
+
+            当前版本：`${{ env.BUILD_STAMP }}`
 
             | 文件 | 说明 |
             |---|---|
@@ -220,7 +238,43 @@ jobs:
             output/Country.mmdb.sha256sum
             output/version
           make_latest: true
+          overwrite_files: true
           fail_on_unmatched_files: true
+
+      # 兜底清理：万一将来又出现了非固定 tag 的 release/tag（人为误建、
+      # 或历史遗留），在这里顺手清掉，保证「只保留最新」是一条**保证**
+      # 而不是一种期望。整步失败不阻断 —— 清理失败不该拖垮产物发布。
+      - name: Prune stale releases and tags
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+
+          # ① 非固定 tag 的 release（连同其 tag 一起删）
+          gh release list --limit 200 --json tagName --jq '.[].tagName' 2>/dev/null \
+            | while read -r t; do
+                [ -z "$t" ] && continue
+                [ "$t" = "${RELEASE_TAG}" ] && continue
+                echo "删除旧 release: $t"
+                gh release delete "$t" --yes --cleanup-tag 2>/dev/null || true
+              done
+
+          # ② 没有 release 的历史 tag。
+          # ⚠️ 这里**不能**用 `--paginate`：/git/refs/tags 不支持分页，
+          #    永远返回全量，--paginate 会无限翻页。
+          gh api "repos/${GITHUB_REPOSITORY}/git/refs/tags" \
+               --jq '.[].ref' 2>/dev/null \
+            | sed 's#^refs/tags/##' \
+            | while read -r t; do
+                [ -z "$t" ] && continue
+                [ "$t" = "${RELEASE_TAG}" ] && continue
+                echo "删除旧 tag: $t"
+                gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/$t" 2>/dev/null || true
+              done
+
+          echo "剩余 tag："
+          gh api "repos/${GITHUB_REPOSITORY}/git/refs/tags" --jq '.[].ref' 2>/dev/null || true
+        continue-on-error: true
 
       - name: Purge jsDelivr cache
         run: |
