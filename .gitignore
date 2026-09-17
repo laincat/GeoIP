@@ -66,14 +66,17 @@ $RECYCLE.BIN/
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
-tmp/
-data/
-geolite2/
-db-ip/
-ipinfo/
-iptoasn/
-output/
-geoip
+# 构建期数据与产物：**必须用前导斜杠锚定到仓库根**。
+# 写成 ipinfo/ 会匹配任意层级的同名目录，把 plugin/ipinfo/ 的源码一起吞掉
+# （2026-09-17 踩过：CI 报 "no required module provides package …/plugin/ipinfo"）。
+/tmp/
+/data/
+/geolite2/
+/db-ip/
+/ipinfo/
+/iptoasn/
+/output/
+/geoip
 *.dat
 *.mmdb
 *.srs
@@ -83,6 +86,6 @@ geoip
 __pycache__/
 
 # Local scratch (probe outputs, throwaway verify venv)
-.cache/
+/.cache/
 .tmp_*/
 .tmp-probe*
