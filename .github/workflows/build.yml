@@ -16,10 +16,12 @@ on:
       - ".gitignore"
       - ".github/dependabot.yml"
 
-# 推 release 分支需要写权限。
+# 写权限是**两个**动作的前提，缺一不可：
+#   ① 推 release 分支（jsDelivr 那条链路）
+#   ② 创建 GitHub Release 并上传附件（releases/latest/download 那条链路）
 # 注意：这里的权限只能收窄、不能提权，所以仓库的
 # Settings -> Actions -> General -> Workflow permissions
-# 也必须设为 "Read and write"，否则最后一步 push 会 403。
+# 也必须设为 "Read and write"，否则两者都会 403。
 permissions:
   contents: write
 
@@ -154,6 +156,13 @@ jobs:
           cat Country.mmdb.sha256sum
           cat version
 
+      # 产物有两个去处，互不冲突：
+      #   ① release 分支 —— 供 jsDelivr 走 cdn.jsdelivr.net 分发。该分支是
+      #      「干净目录 git init + 孤立 + force-push」，永远只有 1 个提交，
+      #      仓库不会因为每天重建而膨胀。
+      #   ② GitHub Release 附件 —— 见下一步。附件**不占 git 仓库**，且
+      #      `releases/latest/download/<file>` 是永远指向最新一版的固定地址，
+      #      也不受 jsDelivr 的 20MB 单文件限制（本产物约 14.7MB，贴着上限）。
       - name: Push assets to release branch
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -170,6 +179,48 @@ jobs:
 
           git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push -f origin release
+
+      # 发布 GitHub Release。
+      #
+      # 为什么之前 releases 页面是空的：上面那步只做了 `git push release`，
+      # 从头到尾没调用过 Releases API —— 推分支 ≠ 建 Release，两者是独立的
+      # 东西。Releases API 生成的 Release 对象才带附件和 releases/latest 指针。
+      #
+      # tag 用 build 阶段算好的时间戳（如 202609170628），每天两个 tag。
+      # `make_latest: true` 让 GitHub 把 releases/latest 指到这一版，
+      # 于是下游永远只需要订阅一个固定地址：
+      #     https://github.com/laincat/GeoIP/releases/latest/download/Country.mmdb
+      #
+      # 注意这一步**不依赖** release 分支：附件直接来自 ./output 里的文件。
+      # 不再需要 release 分支时删掉上一步即可，本步照常工作。
+      #
+      # 另：上一步在 ./output 里 git init 过，所以这里必须逐个列文件名，
+      # 不能用 `output/*` 之类的通配（会把 ./output/.git 也扫进来）。
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ env.TAG_NAME }}
+          name: ${{ env.TAG_NAME }}
+          body: |
+            Country.mmdb —— GeoLite2-Country 结构 + 类别覆盖（CLOUDFLARE / GOOGLE /
+            TELEGRAM / NETFLIX / PRIVATE / CN 等），由 IPInfo 免费 country.csv 与
+            iptoasn.com 构建。
+
+            固定下载地址（永远指向最新一版）：
+
+            https://github.com/laincat/GeoIP/releases/latest/download/Country.mmdb
+
+            | 文件 | 说明 |
+            |---|---|
+            | `Country.mmdb` | 产物本体 |
+            | `Country.mmdb.sha256sum` | 校验和，用法见仓库 README |
+            | `version` | 构建时间戳（UTC，`YYYYMMDDHHMM`） |
+          files: |
+            output/Country.mmdb
+            output/Country.mmdb.sha256sum
+            output/version
+          make_latest: true
+          fail_on_unmatched_files: true
 
       - name: Purge jsDelivr cache
         run: |
