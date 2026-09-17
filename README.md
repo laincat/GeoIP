@@ -2,17 +2,31 @@
 
 一份开箱可用的 **`Country.mmdb`**，供 Surge / Clash / sing-box 等客户端做 `GEOIP` 规则匹配。
 
-每天自动构建一次，产物固定发布在 `release` 分支，订阅地址永不变化。
+每天自动构建一次，产物有两个去处，订阅地址都永不变化：
+
+- **GitHub Release 附件**（首选）—— 附件不占 git 仓库，且 `releases/latest`
+  是 GitHub 的魔法别名，永远指向最新一版
+- **`release` 分支**（备用）—— 每次 force-push，永远只有 1 个提交，仓库零膨胀
+
+> Release 的 tag 固定为 `geoip`，**每次构建覆盖同名附件** ——
+> 所以这里永远只有一条 Release、一个 tag。
+> （2026-09-17 之前是每版打一个时间戳 tag，三年攒了 1409 个，已清理并修正。）
 
 ## 订阅地址
 
-首选 GitHub Raw（不限文件体积）：
+首选 GitHub Release（`latest` 别名，永远指向最新）：
+
+```
+https://github.com/laincat/GeoIP/releases/latest/download/Country.mmdb
+```
+
+备用 GitHub Raw（读 `release` 分支，不限文件体积）：
 
 ```
 https://github.com/laincat/GeoIP/raw/release/Country.mmdb
 ```
 
-备用 jsDelivr。它对单文件有 20MB 上限，产物接近该阈值时可能返回 403，此时请以上面的地址为准：
+再备用 jsDelivr。它对单文件有 20MB 上限，产物接近该阈值时可能返回 403，此时请以上面两条为准：
 
 ```
 https://cdn.jsdelivr.net/gh/laincat/GeoIP@release/Country.mmdb
@@ -21,13 +35,13 @@ https://cdn.jsdelivr.net/gh/laincat/GeoIP@release/Country.mmdb
 校验产物完整性：
 
 ```
-https://github.com/laincat/GeoIP/raw/release/Country.mmdb.sha256sum
+https://github.com/laincat/GeoIP/releases/latest/download/Country.mmdb.sha256sum
 ```
 
 查看本次构建时间：
 
 ```
-https://github.com/laincat/GeoIP/raw/release/version
+https://github.com/laincat/GeoIP/releases/latest/download/version
 ```
 
 ## 产物里有什么
