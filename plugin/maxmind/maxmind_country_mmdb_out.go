@@ -56,34 +56,15 @@ func (g *GeoLite2CountryMMDBOut) GetDescription() string {
 }
 
 func (g *GeoLite2CountryMMDBOut) Output(container lib.Container) error {
-	dbName := ""
-	dbDesc := ""
-	dbLanguages := []string{"en"}
-	recordSize := 24
-
-	switch g.Type {
-	case TypeGeoLite2CountryMMDBOut:
-		dbName = "GeoLite2-Country"
-		dbDesc = "Customized GeoLite2 Country database"
-		dbLanguages = []string{"de", "en", "es", "fr", "ja", "pt-BR", "ru", "zh-CN"}
-
-	case TypeDBIPCountryMMDBOut:
-		dbName = "DBIP-Country-Lite"
-		dbDesc = "Customized DB-IP Country Lite database"
-		dbLanguages = []string{"de", "en", "es", "fr", "ja", "pt-BR", "ru", "zh-CN", "fa", "ko"}
-
-	case TypeIPInfoCountryMMDBOut:
-		dbName = "IPInfo-Lite"
-		dbDesc = "Customized IPInfo Lite database"
-		recordSize = 32
-	}
-
+	// 元数据刻意保持 GeoLite2-Country 的形状：客户端读这个 mmdb 做 GEOIP 匹配时
+	// 会校验 database_type / languages，沿用既有取值才不会被判成未知数据库。
+	// 本项目不依赖 MaxMind 的任何数据或许可，这里只是沿用它的格式约定。
 	writer, err := mmdbwriter.New(
 		mmdbwriter.Options{
-			DatabaseType:            dbName,
-			Description:             map[string]string{"en": dbDesc},
-			Languages:               dbLanguages,
-			RecordSize:              recordSize,
+			DatabaseType:            "GeoLite2-Country",
+			Description:             map[string]string{"en": "Customized GeoLite2 Country database"},
+			Languages:               []string{"de", "en", "es", "fr", "ja", "pt-BR", "ru", "zh-CN"},
+			RecordSize:              24,
 			IncludeReservedNetworks: true,
 
 			// Pinned via SOURCE_DATE_EPOCH so that identical inputs produce a
@@ -192,178 +173,75 @@ func (g *GeoLite2CountryMMDBOut) marshalData(writer *mmdbwriter.Tree, entry *lib
 	var record mmdbtype.DataType
 	switch strings.TrimSpace(g.SourceMMDBURI) {
 	case "": // No need to get extra info
-		switch g.Type {
-		case TypeGeoLite2CountryMMDBOut, TypeDBIPCountryMMDBOut:
+		// 只落 iso_code —— 产物因此不含任何需要授权分发的 MaxMind 文本数据。
+		record = mmdbtype.Map{
+			"country": mmdbtype.Map{
+				"iso_code": mmdbtype.String(entry.GetName()),
+			},
+		}
+
+	default: // Get extra info
+		info, found := extraInfo[entry.GetName()].(geoip2.Country)
+		if !found {
+			log.Printf("⚠️ [type %s | action %s] not found extra info for list %s\n", g.Type, g.Action, entry.GetName())
+
 			record = mmdbtype.Map{
 				"country": mmdbtype.Map{
 					"iso_code": mmdbtype.String(entry.GetName()),
 				},
 			}
-
-		case TypeIPInfoCountryMMDBOut:
+		} else if info.Continent.Code != "" {
 			record = mmdbtype.Map{
-				"country_code": mmdbtype.String(entry.GetName()),
+				"continent": mmdbtype.Map{
+					"names": mmdbtype.Map{
+						"de":    mmdbtype.String(info.Continent.Names.German),
+						"en":    mmdbtype.String(info.Continent.Names.English),
+						"es":    mmdbtype.String(info.Continent.Names.Spanish),
+						"fr":    mmdbtype.String(info.Continent.Names.French),
+						"ja":    mmdbtype.String(info.Continent.Names.Japanese),
+						"pt-BR": mmdbtype.String(info.Continent.Names.BrazilianPortuguese),
+						"ru":    mmdbtype.String(info.Continent.Names.Russian),
+						"zh-CN": mmdbtype.String(info.Continent.Names.SimplifiedChinese),
+					},
+					"code":       mmdbtype.String(info.Continent.Code),
+					"geoname_id": mmdbtype.Uint32(info.Continent.GeoNameID),
+				},
+				"country": mmdbtype.Map{
+					"names": mmdbtype.Map{
+						"de":    mmdbtype.String(info.Country.Names.German),
+						"en":    mmdbtype.String(info.Country.Names.English),
+						"es":    mmdbtype.String(info.Country.Names.Spanish),
+						"fr":    mmdbtype.String(info.Country.Names.French),
+						"ja":    mmdbtype.String(info.Country.Names.Japanese),
+						"pt-BR": mmdbtype.String(info.Country.Names.BrazilianPortuguese),
+						"ru":    mmdbtype.String(info.Country.Names.Russian),
+						"zh-CN": mmdbtype.String(info.Country.Names.SimplifiedChinese),
+					},
+					"iso_code":             mmdbtype.String(entry.GetName()),
+					"geoname_id":           mmdbtype.Uint32(info.Country.GeoNameID),
+					"is_in_european_union": mmdbtype.Bool(info.Country.IsInEuropeanUnion),
+				},
 			}
-
-		default:
-			return lib.ErrNotSupportedFormat
+		} else {
+			record = mmdbtype.Map{
+				"country": mmdbtype.Map{
+					"names": mmdbtype.Map{
+						"de":    mmdbtype.String(info.Country.Names.German),
+						"en":    mmdbtype.String(info.Country.Names.English),
+						"es":    mmdbtype.String(info.Country.Names.Spanish),
+						"fr":    mmdbtype.String(info.Country.Names.French),
+						"ja":    mmdbtype.String(info.Country.Names.Japanese),
+						"pt-BR": mmdbtype.String(info.Country.Names.BrazilianPortuguese),
+						"ru":    mmdbtype.String(info.Country.Names.Russian),
+						"zh-CN": mmdbtype.String(info.Country.Names.SimplifiedChinese),
+					},
+					"iso_code":             mmdbtype.String(entry.GetName()),
+					"geoname_id":           mmdbtype.Uint32(info.Country.GeoNameID),
+					"is_in_european_union": mmdbtype.Bool(info.Country.IsInEuropeanUnion),
+				},
+			}
 		}
 
-	default: // Get extra info
-		switch g.Type {
-		case TypeGeoLite2CountryMMDBOut:
-			info, found := extraInfo[entry.GetName()].(geoip2.Country)
-			if !found {
-				log.Printf("⚠️ [type %s | action %s] not found extra info for list %s\n", g.Type, g.Action, entry.GetName())
-
-				record = mmdbtype.Map{
-					"country": mmdbtype.Map{
-						"iso_code": mmdbtype.String(entry.GetName()),
-					},
-				}
-			} else if info.Continent.Code != "" {
-				record = mmdbtype.Map{
-					"continent": mmdbtype.Map{
-						"names": mmdbtype.Map{
-							"de":    mmdbtype.String(info.Continent.Names.German),
-							"en":    mmdbtype.String(info.Continent.Names.English),
-							"es":    mmdbtype.String(info.Continent.Names.Spanish),
-							"fr":    mmdbtype.String(info.Continent.Names.French),
-							"ja":    mmdbtype.String(info.Continent.Names.Japanese),
-							"pt-BR": mmdbtype.String(info.Continent.Names.BrazilianPortuguese),
-							"ru":    mmdbtype.String(info.Continent.Names.Russian),
-							"zh-CN": mmdbtype.String(info.Continent.Names.SimplifiedChinese),
-						},
-						"code":       mmdbtype.String(info.Continent.Code),
-						"geoname_id": mmdbtype.Uint32(info.Continent.GeoNameID),
-					},
-					"country": mmdbtype.Map{
-						"names": mmdbtype.Map{
-							"de":    mmdbtype.String(info.Country.Names.German),
-							"en":    mmdbtype.String(info.Country.Names.English),
-							"es":    mmdbtype.String(info.Country.Names.Spanish),
-							"fr":    mmdbtype.String(info.Country.Names.French),
-							"ja":    mmdbtype.String(info.Country.Names.Japanese),
-							"pt-BR": mmdbtype.String(info.Country.Names.BrazilianPortuguese),
-							"ru":    mmdbtype.String(info.Country.Names.Russian),
-							"zh-CN": mmdbtype.String(info.Country.Names.SimplifiedChinese),
-						},
-						"iso_code":             mmdbtype.String(entry.GetName()),
-						"geoname_id":           mmdbtype.Uint32(info.Country.GeoNameID),
-						"is_in_european_union": mmdbtype.Bool(info.Country.IsInEuropeanUnion),
-					},
-				}
-			} else {
-				record = mmdbtype.Map{
-					"country": mmdbtype.Map{
-						"names": mmdbtype.Map{
-							"de":    mmdbtype.String(info.Country.Names.German),
-							"en":    mmdbtype.String(info.Country.Names.English),
-							"es":    mmdbtype.String(info.Country.Names.Spanish),
-							"fr":    mmdbtype.String(info.Country.Names.French),
-							"ja":    mmdbtype.String(info.Country.Names.Japanese),
-							"pt-BR": mmdbtype.String(info.Country.Names.BrazilianPortuguese),
-							"ru":    mmdbtype.String(info.Country.Names.Russian),
-							"zh-CN": mmdbtype.String(info.Country.Names.SimplifiedChinese),
-						},
-						"iso_code":             mmdbtype.String(entry.GetName()),
-						"geoname_id":           mmdbtype.Uint32(info.Country.GeoNameID),
-						"is_in_european_union": mmdbtype.Bool(info.Country.IsInEuropeanUnion),
-					},
-				}
-			}
-
-		case TypeDBIPCountryMMDBOut:
-			info, found := extraInfo[entry.GetName()].(dbipCountry)
-			if !found {
-				log.Printf("⚠️ [type %s | action %s] not found extra info for list %s\n", g.Type, g.Action, entry.GetName())
-
-				record = mmdbtype.Map{
-					"country": mmdbtype.Map{
-						"iso_code": mmdbtype.String(entry.GetName()),
-					},
-				}
-			} else if info.Continent.Code != "" {
-				record = mmdbtype.Map{
-					"continent": mmdbtype.Map{
-						"names": mmdbtype.Map{
-							"de":    mmdbtype.String(info.Continent.Names.German),
-							"en":    mmdbtype.String(info.Continent.Names.English),
-							"es":    mmdbtype.String(info.Continent.Names.Spanish),
-							"fa":    mmdbtype.String(info.Continent.Names.Persian),
-							"fr":    mmdbtype.String(info.Continent.Names.French),
-							"ja":    mmdbtype.String(info.Continent.Names.Japanese),
-							"ko":    mmdbtype.String(info.Continent.Names.Korean),
-							"pt-BR": mmdbtype.String(info.Continent.Names.BrazilianPortuguese),
-							"ru":    mmdbtype.String(info.Continent.Names.Russian),
-							"zh-CN": mmdbtype.String(info.Continent.Names.SimplifiedChinese),
-						},
-						"code":       mmdbtype.String(info.Continent.Code),
-						"geoname_id": mmdbtype.Uint32(info.Continent.GeoNameID),
-					},
-					"country": mmdbtype.Map{
-						"names": mmdbtype.Map{
-							"de":    mmdbtype.String(info.Country.Names.German),
-							"en":    mmdbtype.String(info.Country.Names.English),
-							"es":    mmdbtype.String(info.Country.Names.Spanish),
-							"fa":    mmdbtype.String(info.Country.Names.Persian),
-							"fr":    mmdbtype.String(info.Country.Names.French),
-							"ja":    mmdbtype.String(info.Country.Names.Japanese),
-							"ko":    mmdbtype.String(info.Country.Names.Korean),
-							"pt-BR": mmdbtype.String(info.Country.Names.BrazilianPortuguese),
-							"ru":    mmdbtype.String(info.Country.Names.Russian),
-							"zh-CN": mmdbtype.String(info.Country.Names.SimplifiedChinese),
-						},
-						"iso_code":             mmdbtype.String(entry.GetName()),
-						"geoname_id":           mmdbtype.Uint32(info.Country.GeoNameID),
-						"is_in_european_union": mmdbtype.Bool(info.Country.IsInEuropeanUnion),
-					},
-				}
-			} else {
-				record = mmdbtype.Map{
-					"country": mmdbtype.Map{
-						"names": mmdbtype.Map{
-							"de":    mmdbtype.String(info.Country.Names.German),
-							"en":    mmdbtype.String(info.Country.Names.English),
-							"es":    mmdbtype.String(info.Country.Names.Spanish),
-							"fa":    mmdbtype.String(info.Country.Names.Persian),
-							"fr":    mmdbtype.String(info.Country.Names.French),
-							"ja":    mmdbtype.String(info.Country.Names.Japanese),
-							"ko":    mmdbtype.String(info.Country.Names.Korean),
-							"pt-BR": mmdbtype.String(info.Country.Names.BrazilianPortuguese),
-							"ru":    mmdbtype.String(info.Country.Names.Russian),
-							"zh-CN": mmdbtype.String(info.Country.Names.SimplifiedChinese),
-						},
-						"iso_code":             mmdbtype.String(entry.GetName()),
-						"geoname_id":           mmdbtype.Uint32(info.Country.GeoNameID),
-						"is_in_european_union": mmdbtype.Bool(info.Country.IsInEuropeanUnion),
-					},
-				}
-			}
-
-		case TypeIPInfoCountryMMDBOut:
-			info, found := extraInfo[entry.GetName()].(ipInfoLite)
-			if !found {
-				log.Printf("⚠️ [type %s | action %s] not found extra info for list %s\n", g.Type, g.Action, entry.GetName())
-
-				record = mmdbtype.Map{
-					"country_code": mmdbtype.String(entry.GetName()),
-				}
-			} else {
-				record = mmdbtype.Map{
-					"as_domain":      mmdbtype.String(info.ASDomain),
-					"as_name":        mmdbtype.String(info.ASName),
-					"asn":            mmdbtype.String(info.ASN),
-					"continent":      mmdbtype.String(info.Continent),
-					"continent_code": mmdbtype.String(info.ContinentCode),
-					"country":        mmdbtype.String(info.Country),
-					"country_code":   mmdbtype.String(entry.GetName()),
-				}
-			}
-
-		default:
-			return lib.ErrNotSupportedFormat
-		}
 	}
 
 	for _, cidr := range entryCidr {

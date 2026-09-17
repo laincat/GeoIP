@@ -13,93 +13,19 @@ import (
 )
 
 var (
+	// 产物默认文件名。注意 mmdb 的 database_type 仍是 GeoLite2-Country：
+	// 客户端（Surge / Clash / sing-box）读 GEOIP 时会校验这个字符串，
+	// 换成自造名字会让产物不被识别，所以只在文件名上做收敛。
 	defaultGeoLite2CountryMMDBOutputName = "Country.mmdb"
 
 	defaultMaxmindOutputDir = filepath.Join("./", "output", "maxmind")
-	defaultDBIPOutputDir    = filepath.Join("./", "output", "db-ip")
-	defaultIPInfoOutputDir  = filepath.Join("./", "output", "ipinfo")
 )
 
-// Reference: https://github.com/oschwald/geoip2-golang/blob/HEAD/models.go
-var (
-	zeroDBIPLanguageNames      dbipLanguageNames
-	zeroDBIPContinent          dbipContinent
-	zeroDBIPCountryRecord      dbipCountryRecord
-	zeroDBIPRepresentedCountry dbipRepresentedCountry
-	zeroDBIPCountry            dbipCountry
-)
-
-// Reference: https://ipinfo.io/lite
-type ipInfoLite struct {
-	ASN           string `maxminddb:"asn"`
-	ASName        string `maxminddb:"as_name"`
-	ASDomain      string `maxminddb:"as_domain"`
-	Continent     string `maxminddb:"continent"`
-	ContinentCode string `maxminddb:"continent_code"`
-	Country       string `maxminddb:"country"`
-	CountryCode   string `maxminddb:"country_code"`
-}
-
-// Reference: https://github.com/oschwald/geoip2-golang/blob/HEAD/models.go
-type dbipLanguageNames struct {
-	geoip2.Names
-
-	// Persian localized name
-	Persian string `json:"fa,omitzero" maxminddb:"fa"`
-	// Korean localized name
-	Korean string `json:"ko,omitzero" maxminddb:"ko"`
-}
-
-func (d dbipLanguageNames) HasData() bool {
-	return d != zeroDBIPLanguageNames
-}
-
-// Reference: https://github.com/oschwald/geoip2-golang/blob/HEAD/models.go
-type dbipContinent struct {
-	geoip2.Continent
-
-	Names dbipLanguageNames `json:"names,omitzero" maxminddb:"names"`
-}
-
-func (d dbipContinent) HasData() bool {
-	return d != zeroDBIPContinent
-}
-
-// Reference: https://github.com/oschwald/geoip2-golang/blob/HEAD/models.go
-type dbipCountryRecord struct {
-	geoip2.CountryRecord
-
-	Names dbipLanguageNames `json:"names,omitzero" maxminddb:"names"`
-}
-
-func (d dbipCountryRecord) HasData() bool {
-	return d != zeroDBIPCountryRecord
-}
-
-// Reference: https://github.com/oschwald/geoip2-golang/blob/HEAD/models.go
-type dbipRepresentedCountry struct {
-	geoip2.RepresentedCountry
-
-	Names dbipLanguageNames `json:"names,omitzero" maxminddb:"names"`
-}
-
-func (d dbipRepresentedCountry) HasData() bool {
-	return d != zeroDBIPRepresentedCountry
-}
-
-// Reference: https://github.com/oschwald/geoip2-golang/blob/HEAD/models.go
-type dbipCountry struct {
-	Traits             geoip2.CountryTraits   `json:"traits,omitzero"              maxminddb:"traits"`
-	Continent          dbipContinent          `json:"continent,omitzero"           maxminddb:"continent"`
-	RepresentedCountry dbipRepresentedCountry `json:"represented_country,omitzero" maxminddb:"represented_country"`
-	Country            dbipCountryRecord      `json:"country,omitzero"             maxminddb:"country"`
-	RegisteredCountry  dbipCountryRecord      `json:"registered_country,omitzero"  maxminddb:"registered_country"`
-}
-
-func (d dbipCountry) HasData() bool {
-	return d != zeroDBIPCountry
-}
-
+// newGeoLite2CountryMMDBOut 解析 output 段里的 args。
+//
+// 上游按 iType 分三路（maxmindMMDB / dbipCountryMMDB / ipinfoCountryMMDB）。
+// 本项目只保留 mmdb 这一种输出形态，对应的 dbip / ipinfo 两个插件已删除，
+// 于是三路分支收敛成一路。
 func newGeoLite2CountryMMDBOut(iType string, iDesc string, action lib.Action, data json.RawMessage) (lib.OutputConverter, error) {
 	var tmp struct {
 		OutputName string     `json:"outputName"`
@@ -123,16 +49,7 @@ func newGeoLite2CountryMMDBOut(iType string, iDesc string, action lib.Action, da
 	}
 
 	if tmp.OutputDir == "" {
-		switch iType {
-		case TypeGeoLite2CountryMMDBOut:
-			tmp.OutputDir = defaultMaxmindOutputDir
-
-		case TypeDBIPCountryMMDBOut:
-			tmp.OutputDir = defaultDBIPOutputDir
-
-		case TypeIPInfoCountryMMDBOut:
-			tmp.OutputDir = defaultIPInfoOutputDir
-		}
+		tmp.OutputDir = defaultMaxmindOutputDir
 	}
 
 	return &GeoLite2CountryMMDBOut{
@@ -150,6 +67,11 @@ func newGeoLite2CountryMMDBOut(iType string, iDesc string, action lib.Action, da
 	}, nil
 }
 
+// GetExtraInfo 从 sourceMMDBURI 指向的既有 mmdb 里抽出国家维度的附加字段
+// （国家名、大洲、geoname_id、是否欧盟），供 marshalData 拼进产物。
+//
+// 没配 sourceMMDBURI 时立刻返回 nil —— 本仓库的默认构建正是这条路径，
+// 产物只带 iso_code，不带任何需要授权分发的 MaxMind 文本数据。
 func (g *GeoLite2CountryMMDBOut) GetExtraInfo() (map[string]any, error) {
 	if strings.TrimSpace(g.SourceMMDBURI) == "" {
 		return nil, nil
@@ -157,10 +79,9 @@ func (g *GeoLite2CountryMMDBOut) GetExtraInfo() (map[string]any, error) {
 
 	var content []byte
 	var err error
-	switch {
-	case strings.HasPrefix(strings.ToLower(g.SourceMMDBURI), "http://"), strings.HasPrefix(strings.ToLower(g.SourceMMDBURI), "https://"):
+	if lib.IsRemoteURI(g.SourceMMDBURI) {
 		content, err = lib.GetRemoteURLContent(g.SourceMMDBURI)
-	default:
+	} else {
 		content, err = os.ReadFile(g.SourceMMDBURI)
 	}
 	if err != nil {
@@ -175,109 +96,44 @@ func (g *GeoLite2CountryMMDBOut) GetExtraInfo() (map[string]any, error) {
 
 	infoList := make(map[string]any)
 	for network := range db.Networks() {
-		switch g.Type {
-		case TypeGeoLite2CountryMMDBOut:
-			var record geoip2.Country
-			err := network.Decode(&record)
-			if err != nil {
-				return nil, err
-			}
-
-			switch {
-			case strings.TrimSpace(record.Country.ISOCode) != "":
-				countryCode := strings.ToUpper(strings.TrimSpace(record.Country.ISOCode))
-				if _, found := infoList[countryCode]; !found {
-					infoList[countryCode] = geoip2.Country{
-						Continent: record.Continent,
-						Country:   record.Country,
-					}
-				}
-
-			case strings.TrimSpace(record.RegisteredCountry.ISOCode) != "":
-				countryCode := strings.ToUpper(strings.TrimSpace(record.RegisteredCountry.ISOCode))
-				if _, found := infoList[countryCode]; !found {
-					infoList[countryCode] = geoip2.Country{
-						Continent: record.Continent,
-						Country:   record.RegisteredCountry,
-					}
-				}
-
-			case strings.TrimSpace(record.RepresentedCountry.ISOCode) != "":
-				countryCode := strings.ToUpper(strings.TrimSpace(record.RepresentedCountry.ISOCode))
-				if _, found := infoList[countryCode]; !found {
-					infoList[countryCode] = geoip2.Country{
-						Continent: record.Continent,
-						Country: geoip2.CountryRecord{
-							Names:             record.RepresentedCountry.Names,
-							ISOCode:           record.RepresentedCountry.ISOCode,
-							GeoNameID:         record.RepresentedCountry.GeoNameID,
-							IsInEuropeanUnion: record.RepresentedCountry.IsInEuropeanUnion,
-						},
-					}
-				}
-			}
-
-		case TypeDBIPCountryMMDBOut:
-			var record dbipCountry
-			err := network.Decode(&record)
-			if err != nil {
-				return nil, err
-			}
-
-			switch {
-			case strings.TrimSpace(record.Country.ISOCode) != "":
-				countryCode := strings.ToUpper(strings.TrimSpace(record.Country.ISOCode))
-				if _, found := infoList[countryCode]; !found {
-					infoList[countryCode] = dbipCountry{
-						Continent: record.Continent,
-						Country:   record.Country,
-					}
-				}
-
-			case strings.TrimSpace(record.RegisteredCountry.ISOCode) != "":
-				countryCode := strings.ToUpper(strings.TrimSpace(record.RegisteredCountry.ISOCode))
-				if _, found := infoList[countryCode]; !found {
-					infoList[countryCode] = dbipCountry{
-						Continent: record.Continent,
-						Country:   record.RegisteredCountry,
-					}
-				}
-
-			case strings.TrimSpace(record.RepresentedCountry.ISOCode) != "":
-				countryCode := strings.ToUpper(strings.TrimSpace(record.RepresentedCountry.ISOCode))
-				if _, found := infoList[countryCode]; !found {
-					infoList[countryCode] = dbipCountry{
-						Continent: record.Continent,
-						Country: dbipCountryRecord{
-							CountryRecord: geoip2.CountryRecord{
-								ISOCode:           record.RepresentedCountry.ISOCode,
-								GeoNameID:         record.RepresentedCountry.GeoNameID,
-								IsInEuropeanUnion: record.RepresentedCountry.IsInEuropeanUnion,
-							},
-							Names: record.RepresentedCountry.Names,
-						},
-					}
-				}
-			}
-
-		case TypeIPInfoCountryMMDBOut:
-			var record ipInfoLite
-			err := network.Decode(&record)
-			if err != nil {
-				return nil, err
-			}
-			countryCode := strings.ToUpper(strings.TrimSpace(record.CountryCode))
-			if _, found := infoList[countryCode]; !found {
-				record.ASN = ""
-				record.ASName = ""
-				record.ASDomain = ""
-				infoList[countryCode] = record
-			}
-
-		default:
-			return nil, lib.ErrNotSupportedFormat
+		var record geoip2.Country
+		if err := network.Decode(&record); err != nil {
+			return nil, err
 		}
 
+		switch {
+		case strings.TrimSpace(record.Country.ISOCode) != "":
+			countryCode := strings.ToUpper(strings.TrimSpace(record.Country.ISOCode))
+			if _, found := infoList[countryCode]; !found {
+				infoList[countryCode] = geoip2.Country{
+					Continent: record.Continent,
+					Country:   record.Country,
+				}
+			}
+
+		case strings.TrimSpace(record.RegisteredCountry.ISOCode) != "":
+			countryCode := strings.ToUpper(strings.TrimSpace(record.RegisteredCountry.ISOCode))
+			if _, found := infoList[countryCode]; !found {
+				infoList[countryCode] = geoip2.Country{
+					Continent: record.Continent,
+					Country:   record.RegisteredCountry,
+				}
+			}
+
+		case strings.TrimSpace(record.RepresentedCountry.ISOCode) != "":
+			countryCode := strings.ToUpper(strings.TrimSpace(record.RepresentedCountry.ISOCode))
+			if _, found := infoList[countryCode]; !found {
+				infoList[countryCode] = geoip2.Country{
+					Continent: record.Continent,
+					Country: geoip2.CountryRecord{
+						Names:             record.RepresentedCountry.Names,
+						ISOCode:           record.RepresentedCountry.ISOCode,
+						GeoNameID:         record.RepresentedCountry.GeoNameID,
+						IsInEuropeanUnion: record.RepresentedCountry.IsInEuropeanUnion,
+					},
+				}
+			}
+		}
 	}
 
 	if len(infoList) == 0 {

@@ -3,42 +3,16 @@ package lib
 import (
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 )
 
-func GetRemoteURLContent(url string) ([]byte, error) {
-	resp, err := http.Get(url)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
+// 本文件放「不属于任何单一职责」的公共助手。
+// 取数（HTTP / 本地文件 / gzip）已拆到 fetch.go；区间工具在 range.go。
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get remote content -> %s: %s", url, resp.Status)
-	}
-
-	return io.ReadAll(resp.Body)
-}
-
-func GetRemoteURLReader(url string) (io.ReadCloser, error) {
-	resp, err := http.Get(url)
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
-		return nil, fmt.Errorf("failed to get remote content -> %s: %s", url, resp.Status)
-	}
-
-	return resp.Body, nil
-}
-
+// GetIgnoreIPType 把 onlyIPType 翻译成「要忽略哪种 IP」。
 func GetIgnoreIPType(onlyIPType IPType) IgnoreIPOption {
 	switch onlyIPType {
 	case IPv4:
@@ -50,6 +24,12 @@ func GetIgnoreIPType(onlyIPType IPType) IgnoreIPOption {
 	return nil
 }
 
+// WantedListExtended 让同一份配置既能写数组也能写 map：
+//
+//	"wantedList": ["cn", "us"]
+//	"wantedList": { "google": ["AS15169", …] }
+//
+// 两种形态语义不同 —— 数组是「要哪些名字」，map 是「类别 -> 该类别包含什么」。
 type WantedListExtended struct {
 	TypeSlice []string
 	TypeMap   map[string][]string
@@ -61,12 +41,10 @@ func (w *WantedListExtended) UnmarshalJSON(data []byte) error {
 	}
 
 	slice := make([]string, 0)
-	mapMap := make(map[string][]string, 0)
+	mapMap := make(map[string][]string)
 
-	err := json.Unmarshal(data, &slice)
-	if err != nil {
-		err2 := json.Unmarshal(data, &mapMap)
-		if err2 != nil {
+	if err := json.Unmarshal(data, &slice); err != nil {
+		if err2 := json.Unmarshal(data, &mapMap); err2 != nil {
 			return err2
 		}
 	}
@@ -90,12 +68,7 @@ func (w *WantedListExtended) UnmarshalJSON(data []byte) error {
 // revision being built. When the variable is absent or unusable the function
 // returns 0, which tells mmdbwriter to keep using time.Now().Unix().
 func BuildEpoch() int64 {
-	raw := strings.TrimSpace(os.Getenv("SOURCE_DATE_EPOCH"))
-	if raw == "" {
-		return 0
-	}
-
-	epoch, err := strconv.ParseInt(raw, 10, 64)
+	epoch, err := strconv.ParseInt(strings.TrimSpace(os.Getenv("SOURCE_DATE_EPOCH")), 10, 64)
 	if err != nil || epoch <= 0 {
 		return 0
 	}

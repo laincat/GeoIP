@@ -9,12 +9,16 @@ import (
 	"github.com/tailscale/hujson"
 )
 
+// Instance 是「一组输入 + 一组输出」的执行单元。
+//
+// 接口只声明真正被命令调用到的成员。上游把 ResetInput 与
+// InitConfigFromBytes 也放进了接口，但全仓库没有任何外部调用点
+// （ResetInput 的调用数是 0）—— 留着只会让实现被迫多写两个永不执行的方法。
+// InitConfigFromBytes 保留为包内私有：它只是 InitConfig 的一个步骤。
 type Instance interface {
 	InitConfig(configFile string) error
-	InitConfigFromBytes(content []byte) error
 	AddInput(InputConverter)
 	AddOutput(OutputConverter)
-	ResetInput()
 	ResetOutput()
 	RunInput(Container) error
 	RunOutput(Container) error
@@ -36,8 +40,9 @@ func NewInstance() (Instance, error) {
 func (i *instance) InitConfig(configFile string) error {
 	var content []byte
 	var err error
+
 	configFile = strings.TrimSpace(configFile)
-	if strings.HasPrefix(strings.ToLower(configFile), "http://") || strings.HasPrefix(strings.ToLower(configFile), "https://") {
+	if IsRemoteURI(configFile) {
 		content, err = GetRemoteURLContent(configFile)
 	} else {
 		content, err = os.ReadFile(configFile)
@@ -46,10 +51,10 @@ func (i *instance) InitConfig(configFile string) error {
 		return err
 	}
 
-	return i.InitConfigFromBytes(content)
+	return i.initConfigFromBytes(content)
 }
 
-func (i *instance) InitConfigFromBytes(content []byte) error {
+func (i *instance) initConfigFromBytes(content []byte) error {
 	config := new(config)
 
 	// Support JSON with comments and trailing commas
@@ -76,10 +81,6 @@ func (i *instance) AddInput(ic InputConverter) {
 
 func (i *instance) AddOutput(oc OutputConverter) {
 	i.output = append(i.output, oc)
-}
-
-func (i *instance) ResetInput() {
-	i.input = make([]InputConverter, 0)
 }
 
 func (i *instance) ResetOutput() {

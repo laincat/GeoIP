@@ -1,16 +1,14 @@
 package lib
 
 import (
-	"compress/gzip"
-	"io"
 	"net/netip"
-	"os"
 	"strings"
 
 	"go4.org/netipx"
 )
 
 // 本文件收纳「按区间喂数据」的公共工具。
+// 打开数据源（本地/远端/gzip）已经拆到 fetch.go，本文件只关心 IP 区间。
 //
 // 上游的输入插件多以 CIDR 行为单位读取数据，而 IPInfo / iptoasn 这类
 // 以「起止 IP」成对给出的转储，逐行拆 CIDR 是纯粹的浪费。这里把区间写入
@@ -84,51 +82,5 @@ func SkipByIPType(ipRange netipx.IPRange, onlyIPType IPType) bool {
 	}
 }
 
-// gzipReadCloser 让压缩流与底层流一起被关闭，否则 HTTP 连接不会被释放。
-type gzipReadCloser struct {
-	io.Reader
-	closers []io.Closer
-}
-
-func (r *gzipReadCloser) Close() error {
-	var firstErr error
-	for _, closer := range r.closers {
-		if err := closer.Close(); err != nil && firstErr == nil {
-			firstErr = err
-		}
-	}
-	return firstErr
-}
-
-// OpenMaybeGzip 打开本地路径或 HTTP(S) 地址，并在以 .gz 结尾时透明解压。
-func OpenMaybeGzip(uri string) (io.ReadCloser, error) {
-	var raw io.ReadCloser
-
-	switch {
-	case strings.HasPrefix(strings.ToLower(uri), "http://"), strings.HasPrefix(strings.ToLower(uri), "https://"):
-		remote, err := GetRemoteURLReader(uri)
-		if err != nil {
-			return nil, err
-		}
-		raw = remote
-
-	default:
-		file, err := os.Open(uri)
-		if err != nil {
-			return nil, err
-		}
-		raw = file
-	}
-
-	if !strings.HasSuffix(strings.ToLower(uri), ".gz") {
-		return raw, nil
-	}
-
-	gz, err := gzip.NewReader(raw)
-	if err != nil {
-		raw.Close()
-		return nil, err
-	}
-
-	return &gzipReadCloser{Reader: gz, closers: []io.Closer{gz, raw}}, nil
-}
+// gzipReadCloser、OpenMaybeGzip、IsRemoteURI 已移入 fetch.go —— 它们是「取数」
+// 而不是「区间」的事，放在这里会让两个关注点互相牵扯。

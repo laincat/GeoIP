@@ -19,9 +19,7 @@ import (
 var supportedInputFormats = map[string]bool{
 	strings.ToLower("clashRuleSet"):          true,
 	strings.ToLower("clashRuleSetClassical"): true,
-	strings.ToLower("dbipCountryMMDB"):       true,
 	strings.ToLower("ipinfoCountryCSV"):      true,
-	strings.ToLower("ipinfoCountryMMDB"):     true,
 	strings.ToLower("maxmindMMDB"):           true,
 	strings.ToLower("surgeRuleSet"):          true,
 	strings.ToLower("text"):                  true,
@@ -30,7 +28,7 @@ var supportedInputFormats = map[string]bool{
 func init() {
 	rootCmd.AddCommand(lookupCmd)
 
-	lookupCmd.Flags().StringP("format", "f", "", "(Required) The input format. Available formats: text, ipinfoCountryCSV, maxmindMMDB, dbipCountryMMDB, ipinfoCountryMMDB, clashRuleSet, clashRuleSetClassical, surgeRuleSet")
+	lookupCmd.Flags().StringP("format", "f", "", "(Required) The input format. Available formats: text, ipinfoCountryCSV, maxmindMMDB, clashRuleSet, clashRuleSetClassical, surgeRuleSet")
 	lookupCmd.Flags().StringP("uri", "u", "", "URI of the input file, support both local file path and remote HTTP(S) URL. (Cannot be used with \"dir\" flag)")
 	lookupCmd.Flags().StringP("dir", "d", "", "Path to the input directory. The filename without extension will be as the name of the list. (Cannot be used with \"uri\" flag)")
 	lookupCmd.Flags().StringSliceP("searchlist", "l", []string{}, "The lists to search from, separated by comma")
@@ -163,22 +161,6 @@ func getInputForLookup(format, name, uri, dir string) lib.InputConverter {
 			Type:        maxmind.TypeGeoLite2CountryMMDBIn,
 			Action:      lib.ActionAdd,
 			Description: maxmind.DescGeoLite2CountryMMDBIn,
-			URI:         uri,
-		}
-
-	case strings.ToLower(maxmind.TypeDBIPCountryMMDBIn):
-		input = &maxmind.GeoLite2CountryMMDBIn{
-			Type:        maxmind.TypeDBIPCountryMMDBIn,
-			Action:      lib.ActionAdd,
-			Description: maxmind.DescDBIPCountryMMDBIn,
-			URI:         uri,
-		}
-
-	case strings.ToLower(maxmind.TypeIPInfoCountryMMDBIn):
-		input = &maxmind.GeoLite2CountryMMDBIn{
-			Type:        maxmind.TypeIPInfoCountryMMDBIn,
-			Action:      lib.ActionAdd,
-			Description: maxmind.DescIPInfoCountryMMDBIn,
 			URI:         uri,
 		}
 

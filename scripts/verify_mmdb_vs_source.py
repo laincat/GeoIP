@@ -3,7 +3,7 @@
 
 mmdbverify 只验二进制结构，不看内容；这个脚本补上内容维度：
 
-  1. 逐行读 `ipinfo/country.csv.gz`（每行一个 [start_ip, end_ip] 区间 + 国家码）；
+  1. 逐行读 `data/ipinfo/country.csv.gz`（每行一个 [start_ip, end_ip] 区间 + 国家码）；
   2. 按固定步长抽样，在区间内取探测点（中点 + 一个随机点）；
   3. 查 Country.mmdb，比对答案。
 
@@ -18,8 +18,8 @@ overwriteList 声明的类别码」**。第二类是预期覆盖（cn / cloudfla
 CIDR（实测平均约 1.7 个），所以网段数不是判据，逐点覆盖率才是。
 
 用法：
-    python3 tools/verify_mmdb_vs_source.py ./output/Country.mmdb
-    python3 tools/verify_mmdb_vs_source.py ./output/Country.mmdb --step 400
+    python3 scripts/verify_mmdb_vs_source.py ./output/Country.mmdb
+    python3 scripts/verify_mmdb_vs_source.py ./output/Country.mmdb --step 400
 """
 
 from __future__ import annotations
@@ -114,7 +114,7 @@ def probe_points(start: str, end: str, rng: random.Random):
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("mmdb", nargs="?", default="./output/Country.mmdb", help="待验证的 Country.mmdb")
-    parser.add_argument("--csv", default="./ipinfo/country.csv.gz", help="IPInfo 源文件")
+    parser.add_argument("--csv", default="./data/ipinfo/country.csv.gz", help="IPInfo 源文件")
     parser.add_argument("--config", default="./config.json", help="用于读取 overwriteList")
     parser.add_argument("--step", type=int, default=DEFAULT_STEP, help=f"抽样步长（默认 {DEFAULT_STEP}）")
     parser.add_argument("--min-rate", type=float, default=100.0, help="要求的最低可解释率（默认 100）")

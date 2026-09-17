@@ -49,10 +49,9 @@ func (g *GeoLite2CountryMMDBIn) GetDescription() string {
 func (g *GeoLite2CountryMMDBIn) Input(container lib.Container) (lib.Container, error) {
 	var content []byte
 	var err error
-	switch {
-	case strings.HasPrefix(strings.ToLower(g.URI), "http://"), strings.HasPrefix(strings.ToLower(g.URI), "https://"):
+	if lib.IsRemoteURI(g.URI) {
 		content, err = lib.GetRemoteURLContent(g.URI)
-	default:
+	} else {
 		content, err = os.ReadFile(g.URI)
 	}
 	if err != nil {
@@ -98,35 +97,21 @@ func (g *GeoLite2CountryMMDBIn) generateEntries(content []byte, entries map[stri
 
 	for network := range db.Networks() {
 		var name string
-		var err error
 
-		switch g.Type {
-		case TypeGeoLite2CountryMMDBIn, TypeDBIPCountryMMDBIn:
-			var record geoip2.Country
-			err = network.Decode(&record)
-			if err != nil {
-				return err
-			}
+		var record geoip2.Country
+		if err := network.Decode(&record); err != nil {
+			return err
+		}
 
-			switch {
-			case strings.TrimSpace(record.Country.ISOCode) != "":
-				name = strings.ToUpper(strings.TrimSpace(record.Country.ISOCode))
-			case strings.TrimSpace(record.RegisteredCountry.ISOCode) != "":
-				name = strings.ToUpper(strings.TrimSpace(record.RegisteredCountry.ISOCode))
-			case strings.TrimSpace(record.RepresentedCountry.ISOCode) != "":
-				name = strings.ToUpper(strings.TrimSpace(record.RepresentedCountry.ISOCode))
-			}
-
-		case TypeIPInfoCountryMMDBIn:
-			var record ipInfoLite
-			err = network.Decode(&record)
-			if err != nil {
-				return err
-			}
-			name = strings.ToUpper(strings.TrimSpace(record.CountryCode))
-
-		default:
-			return lib.ErrNotSupportedFormat
+		// 取到第一个非空的 ISO 码：country 优先，其次是 registered_country，
+		// 最后是 represented_country。
+		switch {
+		case strings.TrimSpace(record.Country.ISOCode) != "":
+			name = strings.ToUpper(strings.TrimSpace(record.Country.ISOCode))
+		case strings.TrimSpace(record.RegisteredCountry.ISOCode) != "":
+			name = strings.ToUpper(strings.TrimSpace(record.RegisteredCountry.ISOCode))
+		case strings.TrimSpace(record.RepresentedCountry.ISOCode) != "":
+			name = strings.ToUpper(strings.TrimSpace(record.RepresentedCountry.ISOCode))
 		}
 
 		if name == "" || !network.Found() {

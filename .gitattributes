@@ -1,0 +1,6 @@
+# 换行一律用 LF，与开发机的 core.autocrlf=true 无关。
+#
+# 为什么必须钉死：scripts/ 下是 shell 脚本，一旦以 CRLF 检出，
+# Linux CI 上 `bash scripts/fetch-data.sh` 会因为行尾的 \r 报
+# "No such file or directory" —— 而本地 Windows 上完全看不出来。
+* text=auto eol=lf

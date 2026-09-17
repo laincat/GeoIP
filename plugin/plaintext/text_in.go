@@ -3,7 +3,6 @@ package plaintext
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -115,10 +114,9 @@ func (t *TextIn) Input(container lib.Container) (lib.Container, error) {
 		err = t.walkDir(t.InputDir, entries)
 
 	case t.Name != "" && t.URI != "":
-		switch {
-		case strings.HasPrefix(strings.ToLower(t.URI), "http://"), strings.HasPrefix(strings.ToLower(t.URI), "https://"):
+		if lib.IsRemoteURI(t.URI) {
 			err = t.walkRemoteFile(t.URI, t.Name, entries)
-		default:
+		} else {
 			err = t.walkLocalFile(t.URI, t.Name, entries)
 		}
 		if err != nil {
@@ -226,15 +224,14 @@ func (t *TextIn) walkLocalFile(path, name string, entries map[string]*lib.Entry)
 }
 
 func (t *TextIn) walkRemoteFile(url, name string, entries map[string]*lib.Entry) error {
-	resp, err := http.Get(url)
+	// 走 lib.GetRemoteURLReader，不自己 http.Get —— 超时、重试与 User-Agent
+	// 统一由 lib 那一层负责。这里原来自己写了一遍，结果是「加超时」时漏掉了它：
+	// http.Get 用的是零值 client，没有超时，源站卡住就会把 CI 挂到 6 小时上限。
+	body, err := lib.GetRemoteURLReader(url)
 	if err != nil {
-		return err
+		return fmt.Errorf("❌ [type %s | action %s] %w", t.Type, t.Action, err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("❌ [type %s | action %s] failed to get remote file %s, http status code %d", t.Type, t.Action, url, resp.StatusCode)
-	}
+	defer body.Close()
 
 	name = strings.ToUpper(name)
 
@@ -243,7 +240,7 @@ func (t *TextIn) walkRemoteFile(url, name string, entries map[string]*lib.Entry)
 	}
 
 	entry := lib.NewEntry(name)
-	if err := t.scanFile(resp.Body, entry); err != nil {
+	if err := t.scanFile(body, entry); err != nil {
 		return err
 	}
 

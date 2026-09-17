@@ -8,11 +8,11 @@ import (
 	"github.com/laincat/GeoIP/lib"
 )
 
-var (
-	defaultGeoLite2CountryMMDBFile = filepath.Join("./", "geolite2", "GeoLite2-Country.mmdb")
-	defaultDBIPCountryMMDBFile     = filepath.Join("./", "db-ip", "dbip-country-lite.mmdb")
-	defaultIPInfoCountryMMDBFile   = filepath.Join("./", "ipinfo", "country.mmdb")
-)
+// 读既有 mmdb 作输入时的默认路径。
+//
+// 上游这里还有 db-ip 与 ipinfo 两个默认值，随对应的插件文件一起删了 ——
+// 本项目只保留 mmdb 这一种输入形态。
+var defaultGeoLite2CountryMMDBFile = filepath.Join("./", "geolite2", "GeoLite2-Country.mmdb")
 
 func newGeoLite2CountryMMDBIn(iType string, iDesc string, action lib.Action, data json.RawMessage) (lib.InputConverter, error) {
 	var tmp struct {
@@ -28,16 +28,7 @@ func newGeoLite2CountryMMDBIn(iType string, iDesc string, action lib.Action, dat
 	}
 
 	if tmp.URI == "" {
-		switch iType {
-		case TypeGeoLite2CountryMMDBIn:
-			tmp.URI = defaultGeoLite2CountryMMDBFile
-
-		case TypeDBIPCountryMMDBIn:
-			tmp.URI = defaultDBIPCountryMMDBFile
-
-		case TypeIPInfoCountryMMDBIn:
-			tmp.URI = defaultIPInfoCountryMMDBFile
-		}
+		tmp.URI = defaultGeoLite2CountryMMDBFile
 	}
 
 	// Filter want list

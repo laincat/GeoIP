@@ -69,12 +69,11 @@ $RECYCLE.BIN/
 # 构建期数据与产物：**必须用前导斜杠锚定到仓库根**。
 # 写成 ipinfo/ 会匹配任意层级的同名目录，把 plugin/ipinfo/ 的源码一起吞掉
 # （2026-09-17 踩过：CI 报 "no required module provides package …/plugin/ipinfo"）。
+#
+# 三个入口已收敛为：data/（下载的输入）、output/（产物）、geolite2/（读 mmdb 时的默认查找目录）。
 /tmp/
 /data/
 /geolite2/
-/db-ip/
-/ipinfo/
-/iptoasn/
 /output/
 /geoip
 *.dat

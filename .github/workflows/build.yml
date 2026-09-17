@@ -29,6 +29,12 @@ concurrency:
   group: build-country-mmdb
   cancel-in-progress: false
 
+env:
+  # 校验工具固定版本，**不要**用 @latest：
+  #   - @latest 每天可能指到不同代码，"同一提交重跑得到同一结果"就不成立了
+  #   - 缓存 key 也会因此天天失效，等于没缓存
+  MMDBVERIFY_VERSION: v1.0.0
+
 jobs:
   build:
     name: Build
@@ -45,6 +51,25 @@ jobs:
         with:
           go-version-file: ./go.mod
           cache-dependency-path: ./go.sum
+
+      # setup-go 只缓存 GOMODCACHE（依赖**下载**），不管 GOCACHE（依赖**编译**）。
+      # 后者才是 go build 的主要耗时，单独缓存一层。
+      - name: Cache Go build cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/go-build
+          key: gocache-${{ runner.os }}-${{ hashFiles('go.sum', '**/*.go') }}
+          restore-keys: |
+            gocache-${{ runner.os }}-
+
+      # mmdbverify 是个纯命令行工具，装一次能用很久。
+      # 缓存整个 ~/go/bin，配合上面固定的 MMDBVERIFY_VERSION 做 key：
+      # 版本不变就是缓存命中，`go install` 直接变空操作。
+      - name: Cache Go installed tools
+        uses: actions/cache@v6
+        with:
+          path: ~/go/bin
+          key: gobin-${{ runner.os }}-mmdbverify-${{ env.MMDBVERIFY_VERSION }}
 
       - name: Set variables
         run: |
@@ -69,53 +94,20 @@ jobs:
           echo "BUILD_STAMP=$(date -u +%Y%m%d%H%M)" >> "$GITHUB_ENV"
         shell: bash
 
-      - name: Download IPInfo country data
+      # 下载逻辑收敛在 scripts/fetch-data.sh 里，README 的本地构建命令调的是
+      # 同一个脚本 —— 原先这段 curl 在 README 与 workflow 里各写了一遍，
+      # 改路径要改两处，判据也容易悄悄漂移。
+      # 脚本自带「体积下限 + gzip 完整性」双重校验：IPInfo 取数失败会返回
+      # HTTP 200 + 一小段错误正文，只看状态码分辨不出来。
+      - name: Download input data
         env:
           IPINFO_TOKEN: ${{ secrets.IPINFO_TOKEN }}
-        run: |
-          set -euo pipefail
-          mkdir -p ./ipinfo
-
-          if [ -z "${IPINFO_TOKEN}" ]; then
-            echo "::error::仓库缺少 IPINFO_TOKEN secret，无法下载 IPInfo 数据集"
-            exit 1
-          fi
-
-          curl -fsSL --retry 3 --retry-delay 5 \
-            "https://ipinfo.io/data/free/country.csv.gz?token=${IPINFO_TOKEN}" \
-            -o ./ipinfo/country.csv.gz
-
-          ls -l ./ipinfo/country.csv.gz
-
-          # 取数失败时 IPInfo 会返回 200 + 一小段错误正文，体积会异常小；
-          # 单看 HTTP 状态码分辨不出来，所以这里按体积 + gzip 完整性双重校验。
-          size=$(stat -c%s ./ipinfo/country.csv.gz)
-          if [ "$size" -lt 100000 ]; then
-            echo "::error::country.csv.gz 只有 ${size} 字节，疑似返回了错误页"
-            head -c 400 ./ipinfo/country.csv.gz
-            exit 1
-          fi
-          gzip -t ./ipinfo/country.csv.gz
-
-          echo "IPInfo country.csv.gz 校验通过（${size} 字节）"
-
-      - name: Download iptoasn data
-        run: |
-          set -euo pipefail
-          mkdir -p ./iptoasn
-
-          for name in ip2asn-v4.tsv.gz ip2asn-v6.tsv.gz; do
-            curl -fsSL --retry 3 --retry-delay 5 \
-              "https://iptoasn.com/data/${name}" \
-              -o "./iptoasn/${name}"
-            gzip -t "./iptoasn/${name}"
-            echo "${name}: $(stat -c%s "./iptoasn/${name}") 字节"
-          done
+        run: bash ./scripts/fetch-data.sh
 
       - name: Build Country.mmdb
         run: |
           set -euo pipefail
-          go build -o ./geoip .
+          go build -o ./geoip ./cmd/geoip
           ./geoip convert -c ./config.json
           ls -l ./output
 
@@ -140,14 +132,14 @@ jobs:
       - name: Verify mmdb structure
         run: |
           set -euo pipefail
-          go install -v github.com/maxmind/mmdbverify@latest
+          go install -v "github.com/maxmind/mmdbverify@${MMDBVERIFY_VERSION}"
           "$(go env GOPATH)/bin/mmdbverify" -file ./output/Country.mmdb
 
       - name: Smoke test lookups
         run: |
           set -euo pipefail
           python3 -m pip install --quiet "maxminddb==2.6.1"
-          python3 ./tools/verify_mmdb.py ./output/Country.mmdb
+          python3 ./scripts/verify_mmdb.py ./output/Country.mmdb
 
       - name: Cross-check against IPInfo source
         run: |
@@ -156,7 +148,7 @@ jobs:
           # mmdbverify 只验二进制结构，verify_mmdb.py 只抽查几个固定 IP。
           # 这一步按固定步长抽样三万个源区间逐点回查，要求每个答案都能由
           # 「IPInfo 源文件」或「config.json 的 overwriteList」解释。
-          python3 ./tools/verify_mmdb_vs_source.py ./output/Country.mmdb --csv ./ipinfo/country.csv.gz
+          python3 ./scripts/verify_mmdb_vs_source.py ./output/Country.mmdb --csv ./data/ipinfo/country.csv.gz
 
       - name: Generate checksum
         run: |
@@ -167,6 +159,34 @@ jobs:
           cat Country.mmdb.sha256sum
           cat version
 
+      # 空跑短路：产物与线上已发布的那份**逐字节相同**时，后面三步发布动作
+      # 全都没有意义。这在「改了 workflow/文档后 push」的场景下是常态 ——
+      # 每次都会重新构建出同一个文件，然后白白覆盖一次 Release、多推一个
+      # release 分支提交、多刷一次 jsDelivr。
+      #
+      # 取不到已发布的校验和（首次运行、网络抖动、release 被删）时一律按
+      # 「有变化」处理 —— 短路是优化，绝不能变成漏发的原因。
+      - name: Detect no-op build
+        id: delta
+        run: |
+          set -uo pipefail
+
+          new_sum=$(cut -d' ' -f1 ./output/Country.mmdb.sha256sum)
+          published=$(curl -fsSL --max-time 30 --retry 2 \
+            "https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/Country.mmdb.sha256sum" \
+            2>/dev/null | awk '{print $1}')
+
+          echo "本次构建:  ${new_sum}"
+          echo "线上已发布: ${published:-（取不到，按有变化处理）}"
+
+          if [ -n "${published}" ] && [ "${new_sum}" = "${published}" ]; then
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+            echo "✅ 与已发布版本逐字节相同 → 跳过发布、跳过 jsDelivr 刷新"
+          else
+            echo "skip=0" >> "$GITHUB_OUTPUT"
+            echo "ℹ️ 产物有变化 → 正常发布"
+          fi
+
       # 产物有两个去处，互不冲突：
       #   ① release 分支 —— 供 jsDelivr 走 cdn.jsdelivr.net 分发。该分支是
       #      「干净目录 git init + 孤立 + force-push」，永远只有 1 个提交，
@@ -175,6 +195,7 @@ jobs:
       #      `releases/latest/download/<file>` 是永远指向最新一版的固定地址，
       #      也不受 jsDelivr 的 20MB 单文件限制（本产物约 14.7MB，贴着上限）。
       - name: Push assets to release branch
+        if: steps.delta.outputs.skip != '1'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -209,6 +230,7 @@ jobs:
       # 另：上一步在 ./output 里 git init 过，所以这里必须逐个列文件名，
       # 不能用 `output/*` 之类的通配（会把 ./output/.git 也扫进来）。
       - name: Publish GitHub Release
+        if: steps.delta.outputs.skip != '1'
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.RELEASE_TAG }}
@@ -277,6 +299,7 @@ jobs:
         continue-on-error: true
 
       - name: Purge jsDelivr cache
+        if: steps.delta.outputs.skip != '1'
         run: |
           # jsDelivr 对超过 20MB 的文件会直接 403，此时刷新失败属正常，
           # 不影响主产物，所以这里不让它中断流程。
