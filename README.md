@@ -1,179 +1,135 @@
-# 简介
+# GeoIP
 
-本项目每日自动生成 GeoIP 文件，同时提供命令行界面（CLI）供用户自行定制 GeoIP 文件，包括但不限于 V2Ray dat 格式路由规则文件 `geoip.dat` 和 MaxMind mmdb 格式文件 `Country.mmdb`。
+一份开箱可用的 **`Country.mmdb`**，供 Surge / Clash / sing-box 等客户端做 `GEOIP` 规则匹配。
 
-This project releases GeoIP files automatically every day. It also provides a command line interface(CLI) for users to customize their own GeoIP files, included but not limited to V2Ray dat format file `geoip.dat` and MaxMind mmdb format file `Country.mmdb`.
+每天自动构建一次，产物固定发布在 `release` 分支，订阅地址永不变化。
 
-## 与上游 [Loyalsoldier/geoip](https://github.com/Loyalsoldier/geoip) 的区别
-- 上游 [Loyalsoldier/geoip](https://github.com/Loyalsoldier/geoip) 使用的海外数据库是 MaxMind 提供的 GeoLite2。 MaxMind 所提供 Geo2Country 这几年的准确度并不好。很多 IP 的位置信息都有问题。 而本工程使用了近几年数据更加准确的 [IPInfo.io](https://ipinfo.io) 的 Free IP to Country 数据库
-- MaxMind 的 Geo2Country 数据库是每周五更新一次，而 ipinfo.io 的 Free IP to Country 数据库是每天更新一次。
-- CI每日生成的MMDB中，并不包含任何新增类别，剔除了ipip-cn的数据库，仅构建原始的ipinfo的mmdb数据库
+## 订阅地址
 
-## 与官方版 GeoIP 的区别
-- 海外/中国大陆的 IPv4 & IPv6 数据库 使用了[IPInfo.io](https://ipinfo.io) 的 Free IP to Country 数据库 而不是 MaxMind 提供的 GeoLite2
-- 新增类别支持（方便有特殊需求的用户使用，需要自己修改配置文件开启，可以参考config.old）：
-  - `geoip:cloudflare`（`GEOIP,CLOUDFLARE`）
-  - `geoip:cloudfront`（`GEOIP,CLOUDFRONT`）
-  - `geoip:facebook`（`GEOIP,FACEBOOK`）
-  - `geoip:fastly`（`GEOIP,FASTLY`）
-  - `geoip:google`（`GEOIP,GOOGLE`）
-  - `geoip:netflix`（`GEOIP,NETFLIX`）
-  - `geoip:telegram`（`GEOIP,TELEGRAM`）
-  - `geoip:twitter`（`GEOIP,TWITTER`）
+首选 GitHub Raw（不限文件体积）：
 
-## 参考配置
-
-在 [Clash](https://github.com/Dreamacro/clash) 中使用本项目 `.mmdb` 格式文件的参考配置：
-
-```yaml
-rules:
-  - GEOIP,CN,policy
-  - GEOIP,US,policy
-  - GEOIP,CountryCode,policy
+```
+https://github.com/laincat/GeoIP/raw/release/Country.mmdb
 ```
 
-在 [Leaf](https://github.com/eycorsican/leaf) 中使用本项目 `.mmdb` 格式文件的参考配置，查看[官方 README](https://github.com/eycorsican/leaf/blob/master/README.zh.md#geoip)。
+备用 jsDelivr。它对单文件有 20MB 上限，产物接近该阈值时可能返回 403，此时请以上面的地址为准：
 
-本工程生出的 `Country.mmdb` 数据库在 [QuantmultX](https://quantumult.app/x/) 中同样可用。
+```
+https://cdn.jsdelivr.net/gh/laincat/GeoIP@release/Country.mmdb
+```
 
-## 下载地址
+校验产物完整性：
 
-> 如果无法访问域名 `raw.githubusercontent.com`，可以使用第二个地址 `cdn.jsdelivr.net`。
-> *.sha256sum 为校验文件。
+```
+https://github.com/laincat/GeoIP/raw/release/Country.mmdb.sha256sum
+```
 
-### V2Ray dat 格式路由规则文件
+查看本次构建时间：
 
-> 适用于 [V2Ray](https://github.com/v2fly/v2ray-core)、[Xray-core](https://github.com/XTLS/Xray-core) 和 [Trojan-Go](https://github.com/p4gefau1t/trojan-go)。
+```
+https://github.com/laincat/GeoIP/raw/release/version
+```
 
-- CI 生成的 DAT 文件超出了 Github 的文件大小限制(100M)，无法 Push 到 release 分支，目前只能自己本地生成使用
+## 产物里有什么
 
-### MaxMind mmdb 格式文件
+`Country.mmdb` 里的每个条目就是一个可供 `GEOIP` 规则引用的标签。它同时包含两个维度：
 
-> 适用于 [Clash](https://github.com/Dreamacro/clash) 和 [Leaf](https://github.com/eycorsican/leaf)。
+**国家与地区**——ISO 3166-1 alpha-2 全量国家码，另有一个 `PRIVATE` 覆盖私有与保留地址段。
 
-- **Country.mmdb**：
-  - [https://raw.githubusercontent.com/JohnnySun/geoip/release/Country.mmdb](https://raw.githubusercontent.com/JohnnySun/geoip/release/Country.mmdb)
-  - [https://cdn.jsdelivr.net/gh/JohnnySun/geoip@release/Country.mmdb](https://cdn.jsdelivr.net/gh/JohnnySun/geoip@release/Country.mmdb)
-- **Country.mmdb.sha256sum**：
-  - [https://raw.githubusercontent.com/JohnnySun/geoip/release/Country.mmdb.sha256sum](https://raw.githubusercontent.com/JohnnySun/geoip/release/Country.mmdb.sha256sum)
-  - [https://cdn.jsdelivr.net/gh/JohnnySun/geoip@release/Country.mmdb.sha256sum](https://cdn.jsdelivr.net/gh/JohnnySun/geoip@release/Country.mmdb.sha256sum)
-- **Country-asn.mmdb**（精简版 GeoIP，只包含上述新增类别）：
-  - [https://raw.githubusercontent.com/JohnnySun/geoip/release/Country-asn.mmdb](https://raw.githubusercontent.com/JohnnySun/geoip/release/Country-asn.mmdb)
-  - [https://cdn.jsdelivr.net/gh/JohnnySun/geoip@release/Country-asn.mmdb](https://cdn.jsdelivr.net/gh/JohnnySun/geoip@release/Country-asn.mmdb)
-- **Country-asn.mmdb.sha256sum**：
-  - [https://raw.githubusercontent.com/JohnnySun/geoip/release/Country-asn.mmdb.sha256sum](https://raw.githubusercontent.com/JohnnySun/geoip/release/Country-asn.mmdb.sha256sum)
-  - [https://cdn.jsdelivr.net/gh/JohnnySun/geoip@release/Country-asn.mmdb.sha256sum](https://cdn.jsdelivr.net/gh/JohnnySun/geoip@release/Country-asn.mmdb.sha256sum)
+**服务类别**——这些标签优先于国家码，也就是说某段地址若既属于 `US` 又被归入 `CLOUDFLARE`，最终落库的是 `CLOUDFLARE`：
 
-## 定制 GeoIP 文件
+| 条目 | 含义 | 数据来源 |
+|---|---|---|
+| `CN` | 中国大陆（国家码与运营商 IP 列表合并） | IPInfo + china-operator-ip |
+| `CLOUDFLARE` | Cloudflare | 官方 v4/v6 列表 + ASN |
+| `CLOUDFRONT` | Amazon CloudFront | AWS `ip-ranges.json` |
+| `FACEBOOK` | Meta / Facebook | ASN |
+| `FASTLY` | Fastly | 官方列表 + ASN |
+| `GOOGLE` | Google | gstatic 官方列表 + ASN |
+| `NETFLIX` | Netflix | ASN |
+| `TELEGRAM` | Telegram | 官方 CIDR + ASN |
+| `TWITTER` | X / Twitter | ASN |
+| `TOR` | Tor 出口节点 | Tor Project 官方列表 |
+| `PRIVATE` | 私有、保留、回环、组播地址段 | 内置常量 |
 
-可通过以下几种方式定制 GeoIP 文件：
+## 数据来源
 
-- **在线生成**：[Fork](https://github.com/JohnnySun/geoip/fork) 本仓库后，修改自己仓库内的配置文件 `config.json` 和 GitHub Workflow `.github/workflows/build.yml`
-- **本地生成**：
-  - 安装 [Golang](https://golang.org/dl/) 和 [Git](https://git-scm.com)
-  - 拉取项目代码: `git clone https://github.com/JohnnySun/geoip.git`
-  - 进入项目根目录：`cd geoip`
-  - 修改配置文件 `config.json`
-  - 运行代码：`go run ./`
+| 用途 | 来源 | 是否需要凭据 |
+|---|---|---|
+| 国家码 | [IPInfo](https://ipinfo.io/data) 免费 `country.csv` | 需要一个免费 token（`IPINFO_TOKEN`） |
+| 服务类别 | [iptoasn.com](https://iptoasn.com/) IP-to-ASN 转储 | 否 |
+| `CN` 补充 | [china-operator-ip](https://github.com/gaoyifan/china-operator-ip) | 否 |
+| 各服务精确列表 | Cloudflare / Google / Fastly / AWS / Telegram / Tor 官方端点 | 否 |
 
-**特别说明：**
+选择 IPInfo 而不是 MaxMind GeoLite2 作为国家维度的原因，是它的中国区覆盖更完整：以 chnroutes2 为基准逐段比对，IPInfo 多认了约 6300 万个在中国却未被 chnroutes2 收录的地址（中国电信 / 联通 / 移动的大块网段），反向缺口仅约 41.5 万个地址。
 
-- **在线生成**：[Fork](https://github.com/JohnnySun/geoip/fork) 本项目后，如果需要使用 MaxMind GeoLite2 Country CSV 数据文件，需要在自己仓库的 **[Settings]** 选项卡的 **[Secrets]** 页面中添加一个名为 **MAXMIND_GEOLITE2_LICENSE** 与 **IPINFO_TOKEN** 的 secret，否则 GitHub Actions 会运行失败。这个 secret 的值为 MAXMIND 账号的 LICENSE KEY 与 IPInfo.io 的 Token，需要[**注册 MAXMIND 账号**](https://www.maxmind.com/en/geolite2/signup)后，在[**个人账号管理页面**](https://www.maxmind.com/en/account)左侧边栏的 **[Services]** 项下的 **[My License Key]** 里生成**MAXMIND_GEOLITE2_LICENSE**，注册 [**注册 IPinfo.io 账号**](http://ipinfo.io/signup)后，在[**Account**](https://ipinfo.io/account/home)左侧边栏的 **[Home]** 选项卡中找到 **IPINFO_TOKEN**。
-- **本地生成**：如果需要使用 MaxMind GeoLite2 Country CSV 数据文件（`GeoLite2-Country-CSV.zip`）以及 IPInfo.io Free IP to Country 数据文件（`country.csv.gz`），需要提前从 MaxMind & IPInfo.io 下载，或从本项目 [release 分支](https://github.com/JohnnySun/geoip/tree/release)[下载](https://github.com/JohnnySun/geoip/raw/release/GeoLite2-Country-CSV.zip)，将（`GeoLite2-Country-CSV.zip`）并解压缩到名为 `geolite2` 的目录。
+## 构建流程
 
-### 概念解析
+```
+IPInfo country.csv.gz ─┐
+iptoasn ip2asn-v4/v6 ──┤
+各服务官方 IP 列表 ────┼─→ 合并去重 → Country.mmdb
+内置 private 段 ───────┘
+```
 
-本项目有两个概念：`input` 和 `output`。`input` 指数据源（data source）及其输入格式，`output` 指数据的去向（data destination）及其输出格式。CLI 的作用就是通过读取配置文件中的选项，聚合用户提供的所有数据源，去重，将其转换为目标格式，并输出到文件。
+同一个地址段只会落一份数据，因此条目的写入顺序即优先级：`overwriteList` 中的类别最后写入，覆盖先前的国家码。
 
-These two concepts are notable: `input` and `output`. The `input` is the data source and its input format, whereas the `output` is the destination of the converted data and its output format. What the CLI does is to aggregate all input format data, then convert them to output format and write them to GeoIP files by using the options in the config file.
-
-### 支持的格式
-
-关于每种格式所支持的配置选项，查看本项目 [`config-example.json`](https://github.com/JohnnySun/geoip/blob/HEAD/config-example.json) 文件。
-
-支持的 `input` 输入格式：
-
-- **text**：纯文本 IP 和 CIDR（例如：`1.1.1.1` 或 `1.0.0.0/24`）
-- **private**：局域网和私有网络 CIDR（例如：`192.168.0.0/16` 和 `127.0.0.0/8`）
-- **cutter**：用于裁剪前置步骤中的数据
-- **v2rayGeoIPDat**：V2Ray GeoIP dat 格式（`geoip.dat`）
-- **maxmindMMDB**：MaxMind mmdb 数据格式（`GeoLite2-Country.mmdb`）
-- **maxmindGeoLite2CountryCSV**：MaxMind GeoLite2 country CSV 数据（`GeoLite2-Country-CSV.zip`）
-- **clashRuleSetClassical**：[classical 类型的 Clash RuleSet](https://github.com/Dreamacro/clash/wiki/premium-core-features#classical)
-- **clashRuleSet**：[ipcidr 类型的 Clash RuleSet](https://github.com/Dreamacro/clash/wiki/premium-core-features#ipcidr)
-- **surgeRuleSet**：[Surge RuleSet](https://manual.nssurge.com/rule/ruleset.html)
-
-支持的 `output` 输出格式：
-
-- **text**：纯文本 CIDR（例如：`1.0.0.0/24`）
-- **v2rayGeoIPDat**：V2Ray GeoIP dat 格式（`geoip.dat`，适用于 [V2Ray](https://github.com/v2fly/v2ray-core)、[Xray-core](https://github.com/XTLS/Xray-core) 和 [Trojan-Go](https://github.com/p4gefau1t/trojan-go)）
-- **maxmindMMDB**：MaxMind mmdb 数据格式（`GeoLite2-Country.mmdb`，适用于 [Clash](https://github.com/Dreamacro/clash) 和 [Leaf](https://github.com/eycorsican/leaf)）
-- **clashRuleSetClassical**：[classical 类型的 Clash RuleSet](https://github.com/Dreamacro/clash/wiki/premium-core-features#classical)
-- **clashRuleSet**：[ipcidr 类型的 Clash RuleSet](https://github.com/Dreamacro/clash/wiki/premium-core-features#ipcidr)
-- **surgeRuleSet**：[Surge RuleSet](https://manual.nssurge.com/rule/ruleset.html)
-
-### 注意事项
-
-由于 MaxMind mmdb 文件格式的限制，当不同列表的 IP 或 CIDR 数据有交集或重复项时，后写入的列表的 IP 或 CIDR 数据会覆盖（overwrite）之前已写入的列表的数据。譬如，IP `1.1.1.1` 同属于列表 `AU` 和列表 `Cloudflare`。如果 `Cloudflare` 在 `AU` 之后写入，则 IP `1.1.1.1` 归属于列表 `Cloudflare`。
-
-为了确保某些指定的列表、被修改的列表一定囊括属于它的所有 IP 或 CIDR 数据，可在 `output` 输出格式为 `maxmindMMDB` 的配置中增加选项 `overwriteList`，该选项中指定的列表会在最后逐一写入，列表中最后一项优先级最高。若已设置选项 `wantedList`，则无需设置 `overwriteList`。`wantedList` 中指定的列表会在最后逐一写入，列表中最后一项优先级最高。
-
-## CLI 功能展示
-
-可通过 `go install -v github.com/JohnnySun/geoip@latest` 直接安装 CLI。
+## 本地构建
 
 ```bash
-$ ./geoip -h
-Usage of ./geoip:
-  -c string
-    	URI of the JSON format config file, support both local file path and remote HTTP(S) URL (default "config.json")
-  -l	List all available input and output formats
-
-$ ./geoip -c config.json
-2021/08/29 12:11:35 ✅ [v2rayGeoIPDat] geoip.dat --> output/dat
-2021/08/29 12:11:35 ✅ [v2rayGeoIPDat] geoip-only-cn-private.dat --> output/dat
-2021/08/29 12:11:35 ✅ [v2rayGeoIPDat] geoip-asn.dat --> output/dat
-2021/08/29 12:11:35 ✅ [v2rayGeoIPDat] cn.dat --> output/dat
-2021/08/29 12:11:35 ✅ [v2rayGeoIPDat] private.dat --> output/dat
-2021/08/29 12:11:39 ✅ [maxmindMMDB] Country.mmdb --> output/maxmind
-2021/08/29 12:11:39 ✅ [maxmindMMDB] Country-only-cn-private.mmdb --> output/maxmind
-2021/08/29 12:11:39 ✅ [text] netflix.txt --> output/text
-2021/08/29 12:11:39 ✅ [text] telegram.txt --> output/text
-2021/08/29 12:11:39 ✅ [text] cn.txt --> output/text
-2021/08/29 12:11:39 ✅ [text] cloudflare.txt --> output/text
-2021/08/29 12:11:39 ✅ [text] cloudfront.txt --> output/text
-2021/08/29 12:11:39 ✅ [text] facebook.txt --> output/text
-2021/08/29 12:11:39 ✅ [text] fastly.txt --> output/text
-
-$ ./geoip -l
-All available input formats:
-  - v2rayGeoIPDat (Convert V2Ray GeoIP dat to other formats)
-  - maxmindMMDB (Convert MaxMind mmdb database to other formats)
-  - maxmindGeoLite2CountryCSV (Convert MaxMind GeoLite2 country CSV data to other formats)
-  - private (Convert LAN and private network CIDR to other formats)
-  - text (Convert plaintext IP & CIDR to other formats)
-  - clashRuleSetClassical (Convert classical type of Clash RuleSet to other formats (just processing IP & CIDR lines))
-  - clashRuleSet (Convert ipcidr type of Clash RuleSet to other formats)
-  - surgeRuleSet (Convert Surge RuleSet to other formats (just processing IP & CIDR lines))
-  - cutter (Remove data from previous steps)
-  - test (Convert specific CIDR to other formats (for test only))
-All available output formats:
-  - v2rayGeoIPDat (Convert data to V2Ray GeoIP dat format)
-  - maxmindMMDB (Convert data to MaxMind mmdb database format)
-  - clashRuleSetClassical (Convert data to classical type of Clash RuleSet)
-  - clashRuleSet (Convert data to ipcidr type of Clash RuleSet)
-  - surgeRuleSet (Convert data to Surge RuleSet)
-  - text (Convert data to plaintext CIDR format)
+go build -o ./geoip .
+./geoip convert -c ./config.json
 ```
 
-## License
+数据准备（与 CI 保持一致）：
 
-[CC-BY-SA-4.0](https://creativecommons.org/licenses/by-sa/4.0/)
+```bash
+curl -fsSL "https://ipinfo.io/data/free/country.csv.gz?token=${IPINFO_TOKEN}" -o ./ipinfo/country.csv.gz
+curl -fsSL "https://iptoasn.com/data/ip2asn-v4.tsv.gz" -o ./iptoasn/ip2asn-v4.tsv.gz
+curl -fsSL "https://iptoasn.com/data/ip2asn-v6.tsv.gz" -o ./iptoasn/ip2asn-v6.tsv.gz
+```
 
-This product includes `GeoLite2` data created by MaxMind, available from [MaxMind](http://www.maxmind.com).
+产物内容校验（不只看结构，还看类别是否真的在、覆盖量是否合理）：
 
-This product includes `Free IP to Country` data created by IPInfo.io, available from [IPInfo.io](https://ipinfo.io).
+```bash
+python3 -m pip install "maxminddb==2.6.1"
+python3 ./tools/verify_mmdb.py ./output/Country.mmdb
+```
 
-## 项目 Star 数增长趋势
+与源文件逐点比对（抽样三万个源区间，要求每个答案都能由源文件或 `overwriteList` 解释）：
 
-[![Stargazers over time](https://starchart.cc/JohnnySun/geoip.svg)](https://starchart.cc/JohnnySun/geoip)
+```bash
+python3 ./tools/verify_mmdb_vs_source.py ./output/Country.mmdb
+```
+
+## 可复现构建
+
+同一份输入产出**字节级一致**的文件，可以直接用校验和判断产物有没有变化。
+
+`mmdb` 格式里唯一无法由数据决定的是元数据字段 `build_epoch`（构建时间戳）——`mmdbwriter` 默认填 `time.Now()`。本项目读了 `SOURCE_DATE_EPOCH` 这个约定俗成的环境变量来固定它：
+
+```
+export SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)
+go build -o ./geoip .
+./geoip convert -c ./config.json
+```
+
+CI 取当前修订的提交时间作为该值，因此**重跑同一个提交不会改变产物校验和**。不设这个变量时行为与之前一致（用当前时间）。
+
+CI 里另有两道校验把这个性质钉死：`mmdbverify`（二进制结构）+ `verify_mmdb_vs_source.py`（内容与源一致）。
+
+## 与上游的关系
+
+代码底座来自 [Loyalsoldier/geoip](https://github.com/Loyalsoldier/geoip)（GPL-3.0），本项目在其基础上做了四处收敛：
+
+- **国家维度换用 IPInfo**，不再依赖需要 license key、且分发受限的 MaxMind GeoLite2；ASN 维度换用免凭据的 iptoasn.com
+- **产物只保留 `Country.mmdb`**，移除了 v2ray dat / sing-box srs / mihomo mrs / text / clash / surge 等全部输出形态及其插件
+- **新增区间型输入**：数据源按「起止 IP」成对给出，直接以区间写入底层 IP 集合，不再逐行拆成 CIDR
+- **可复现构建**：固定 `build_epoch`，同输入产出同字节流
+
+需要说明的是，本项目**不是** [JohnnySun/geoip](https://github.com/JohnnySun/geoip) 的复刻。两者共用 IPInfo 作为国家维度数据源这个思路，但代码库各自独立演进。
+
+## 许可
+
+- 代码：[GPL-3.0](LICENSE-GPL)
+- 数据：[CC BY-SA 4.0](LICENSE)
