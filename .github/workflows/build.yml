@@ -1,137 +1,181 @@
-name: Build geoip files
+name: Build Country.mmdb
+
 on:
   workflow_dispatch:
+
   schedule:
-    - cron: "0 0 * * *"
+    # 北京时间每天 04:30（UTC 20:30）
+    - cron: "30 20 * * *"
+
   push:
     branches:
       - master
     paths-ignore:
+      - "*.md"
+      - "LICENSE*"
       - ".gitignore"
-      - "config-example.json"
-      - "LICENSE"
-      - "README.md"
       - ".github/dependabot.yml"
+
+# 推 release 分支需要写权限。
+# 注意：这里的权限只能收窄、不能提权，所以仓库的
+# Settings -> Actions -> General -> Workflow permissions
+# 也必须设为 "Read and write"，否则最后一步 push 会 403。
+permissions:
+  contents: write
+
+concurrency:
+  group: build-country-mmdb
+  cancel-in-progress: false
+
 jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout codebase
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: ./go.mod
+          cache-dependency-path: ./go.sum
 
       - name: Set variables
         run: |
-          echo "TAG_NAME=$(date +%Y%m%d%H%M)" >> $GITHUB_ENV
-          echo "RELEASE_NAME=$(date +%Y%m%d%H%M)" >> $GITHUB_ENV
+          set -euo pipefail
+
+          # 固定 mmdb 的 build_epoch，使同一输入产出字节级一致的文件。
+          # 取「当前修订的提交时间」而非「现在」，这样重跑同一个提交
+          # 不会改变产物校验和（reproducible-builds 的标准做法）。
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
+
+          echo "TAG_NAME=$(date -u +%Y%m%d%H%M)" >> "$GITHUB_ENV"
         shell: bash
 
-      - name: Fetch lists from ripe.net
-        run: |
-          chmod +x asn.sh
-          ./asn.sh
-
-#      - name: Append more CIDRs
-#        run: |
-#           echo "127.0.0.1/32" > data/private
-#          curl -sSL https://www.gstatic.com/ipranges/goog.json | jq --raw-output '.prefixes[].ipv4Prefix,.prefixes[].ipv6Prefix | select(. != null)' >> data/google
-#          curl -sSL https://www.gstatic.com/ipranges/cloud.json | jq --raw-output '.prefixes[].ipv4Prefix,.prefixes[].ipv6Prefix | select(. != null)' >> data/google
-#          curl -sSL https://api.fastly.com/public-ip-list | jq --raw-output '.addresses[],.ipv6_addresses[]' >> data/fastly
-#          curl -sSL https://ip-ranges.amazonaws.com/ip-ranges.json | jq --raw-output '.prefixes[],.ipv6_prefixes[] | select(.service == "CLOUDFRONT") | .ip_prefix,.ipv6_prefix' | grep "/" >> data/cloudfront
-
-      - name: Get GeoLite2
+      - name: Download IPInfo country data
         env:
-          LICENSE_KEY: ${{ secrets.MAXMIND_GEOLITE2_LICENSE }}
+          IPINFO_TOKEN: ${{ secrets.IPINFO_TOKEN }}
         run: |
-          curl -L "https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-Country-CSV&license_key=${LICENSE_KEY}&suffix=zip" -o GeoLite2-Country-CSV.zip
-          unzip GeoLite2-Country-CSV.zip
-          rm -f GeoLite2-Country-CSV.zip
-          mv GeoLite2* geolite2
+          set -euo pipefail
+          mkdir -p ./ipinfo
 
-      - name: Get IPInfo.io IP2Country
-        env:
-          LICENSE_KEY: ${{ secrets.IPINFO_TOKEN }}
-        run: |
-          curl -L "https://ipinfo.io/data/free/country.csv.gz?token=${LICENSE_KEY}" -o country.csv.gz
-          gzip -d -k country.csv.gz
-          mkdir -p geolite2/ipinfo
-          mv country.csv geolite2/ipinfo
+          if [ -z "${IPINFO_TOKEN}" ]; then
+            echo "::error::仓库缺少 IPINFO_TOKEN secret，无法下载 IPInfo 数据集"
+            exit 1
+          fi
 
-      - name: Build geoip files
-        run: |
-          go run ./
+          curl -fsSL --retry 3 --retry-delay 5 \
+            "https://ipinfo.io/data/free/country.csv.gz?token=${IPINFO_TOKEN}" \
+            -o ./ipinfo/country.csv.gz
 
-      - name: Verify mmdb files
+          ls -l ./ipinfo/country.csv.gz
+
+          # 取数失败时 IPInfo 会返回 200 + 一小段错误正文，体积会异常小；
+          # 单看 HTTP 状态码分辨不出来，所以这里按体积 + gzip 完整性双重校验。
+          size=$(stat -c%s ./ipinfo/country.csv.gz)
+          if [ "$size" -lt 100000 ]; then
+            echo "::error::country.csv.gz 只有 ${size} 字节，疑似返回了错误页"
+            head -c 400 ./ipinfo/country.csv.gz
+            exit 1
+          fi
+          gzip -t ./ipinfo/country.csv.gz
+
+          echo "IPInfo country.csv.gz 校验通过（${size} 字节）"
+
+      - name: Download iptoasn data
         run: |
-          cd ./output/maxmind || exit 1
-          go install -v github.com/maxmind/mmdbverify@9f67706fd081a4eb901731ee7185c2e8e66eb70a
-          for name in $(ls *.mmdb); do
-            $(go env GOPATH)/bin/mmdbverify -file ${name}
+          set -euo pipefail
+          mkdir -p ./iptoasn
+
+          for name in ip2asn-v4.tsv.gz ip2asn-v6.tsv.gz; do
+            curl -fsSL --retry 3 --retry-delay 5 \
+              "https://iptoasn.com/data/${name}" \
+              -o "./iptoasn/${name}"
+            gzip -t "./iptoasn/${name}"
+            echo "${name}: $(stat -c%s "./iptoasn/${name}") 字节"
           done
 
-      - name: Generate sha256 checksum for dat files
+      - name: Build Country.mmdb
         run: |
-          cd ./output/dat || exit 1
-          for name in $(ls *.dat); do
-            sha256sum ${name} > ./${name}.sha256sum
-          done
+          set -euo pipefail
+          go build -o ./geoip .
+          ./geoip convert -c ./config.json
+          ls -l ./output
 
-      - name: Generate sha256 checksum for mmdb files
+      - name: Check reproducibility
         run: |
-          cd ./output/maxmind || exit 1
-          for name in $(ls *.mmdb); do
-            sha256sum ${name} > ./${name}.sha256sum
-          done
+          set -euo pipefail
 
-      - name: Download GeoLite2
+          # 同一输入必须产出同一字节流，否则说明 build_epoch 之类的
+          # 非确定性因素溜进来了（曾经唯一的差异源就是它）。
+          cp ./output/Country.mmdb ./output/Country.mmdb.first
+          ./geoip convert -c ./config.json
+
+          if ! cmp -s ./output/Country.mmdb.first ./output/Country.mmdb; then
+            echo "::error::两次构建产物不一致，SOURCE_DATE_EPOCH 未生效"
+            cmp -l ./output/Country.mmdb.first ./output/Country.mmdb | head -20
+            exit 1
+          fi
+
+          rm -f ./output/Country.mmdb.first
+          echo "✅ 可复现：两次构建字节完全一致（$(stat -c%s ./output/Country.mmdb) 字节）"
+
+      - name: Verify mmdb structure
+        run: |
+          set -euo pipefail
+          go install -v github.com/maxmind/mmdbverify@latest
+          "$(go env GOPATH)/bin/mmdbverify" -file ./output/Country.mmdb
+
+      - name: Smoke test lookups
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet "maxminddb==2.6.1"
+          python3 ./tools/verify_mmdb.py ./output/Country.mmdb
+
+      - name: Cross-check against IPInfo source
+        run: |
+          set -euo pipefail
+
+          # mmdbverify 只验二进制结构，verify_mmdb.py 只抽查几个固定 IP。
+          # 这一步按固定步长抽样三万个源区间逐点回查，要求每个答案都能由
+          # 「IPInfo 源文件」或「config.json 的 overwriteList」解释。
+          python3 ./tools/verify_mmdb_vs_source.py ./output/Country.mmdb --csv ./ipinfo/country.csv.gz
+
+      - name: Generate checksum
+        run: |
+          set -euo pipefail
+          cd ./output
+          sha256sum Country.mmdb > Country.mmdb.sha256sum
+          printf '%s\n' "${TAG_NAME}" > version
+          cat Country.mmdb.sha256sum
+          cat version
+
+      - name: Push assets to release branch
         env:
-          LICENSE_KEY: ${{ secrets.MAXMIND_GEOLITE2_LICENSE }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          curl -L "https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-ASN&license_key=${LICENSE_KEY}&suffix=tar.gz" -o GeoLite2-ASN.tar.gz
-          curl -L "https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-ASN-CSV&license_key=${LICENSE_KEY}&suffix=zip" -o GeoLite2-ASN-CSV.zip
-          curl -L "https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-Country&license_key=${LICENSE_KEY}&suffix=tar.gz" -o GeoLite2-Country.tar.gz
-          curl -L "https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-Country-CSV&license_key=${LICENSE_KEY}&suffix=zip" -o GeoLite2-Country-CSV.zip
+          set -euo pipefail
+          cd ./output
 
-      - name: Move files to publish directory
-        run: |
-          mkdir -p publish
-          mv ./output/maxmind/*.mmdb ./output/maxmind/*.sha256sum *.gz *.zip ./publish/
-          cp -fpPR ./output/text ./publish
-
-      - name: Git push assets to "release" branch
-        run: |
-          cd publish || exit 1
-          echo "${{ env.TAG_NAME }}" > version
-          git init
+          git init -q
           git config --local user.name "github-actions[bot]"
           git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b release
+          git checkout -q -b release
           git add -A
-          git commit -m "${{ env.RELEASE_NAME }}"
-          git remote add geoip "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}"
-          git push -f -u geoip release
+          git commit -q -m "${TAG_NAME}"
 
-      - name: Purge jsdelivr CDN
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push -f origin release
+
+      - name: Purge jsDelivr cache
         run: |
-          cd publish || exit 1
-          for file in $(ls); do
-            curl -i "https://purge.jsdelivr.net/gh/${{ github.repository }}@release/${file}"
+          # jsDelivr 对超过 20MB 的文件会直接 403，此时刷新失败属正常，
+          # 不影响主产物，所以这里不让它中断流程。
+          for file in Country.mmdb Country.mmdb.sha256sum version; do
+            curl -sS -o /dev/null -w "purge ${file}: %{http_code}\n" \
+              "https://purge.jsdelivr.net/gh/${GITHUB_REPOSITORY}@release/${file}" || true
           done
-
-      - name: Remove some files to avoid publishing to GitHub release
-        run: rm -rf ./publish/*.{gz,zip} ./publish/text
-
-      - name: Upload files to GitHub release
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file_glob: true
-          file: ./publish/*
-          tag: ${{ env.TAG_NAME }}
