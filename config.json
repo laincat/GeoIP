@@ -1,60 +1,178 @@
 {
+  // 唯一产物：Country.mmdb
+  //
+  // 国家维度取自 IPInfo 免费数据集，类别维度取自 iptoasn.com 与各家的公开 IP 列表。
+  // 全程不需要 MaxMind 账号，也不需要那份带分发限制的 GeoLite2。
+  //
+  // 用法：geoip convert -c ./config.json
   "input": [
+    // ── 1. 国家维度 ──────────────────────────────────────────────────────────
+    // IPInfo 免费 country.csv.gz，列为 start_ip,end_ip,country,country_name,...
+    // 下载需要 IPINFO_TOKEN，CI 里由 secret 注入。
     {
-      "type": "maxmindGeoLite2CountryCSV",
+      "type": "ipinfoCountryCSV",
       "action": "add",
       "args": {
-        "country": "./geolite2/GeoLite2-Country-Locations-en.csv",
-        "ipv4": "./geolite2/GeoLite2-Country-Blocks-IPv4.csv",
-        "ipv6": "./geolite2/GeoLite2-Country-Blocks-IPv6.csv",
-        "ipinfo": "./geolite2/ipinfo/country.csv"
+        "uri": "./ipinfo/country.csv.gz"
       }
     },
+
+    // ── 2. 类别维度（按 ASN 归类）───────────────────────────────────────────
+    // iptoasn.com 的 IP-to-ASN 转储，免 license，天然覆盖 v4 与 v6。
+    // wantedList 语义与上游 maxmindGeoLite2ASNCSV 一致：
+    // map 形式为「类别 -> ASN 列表」，多个 ASN 归并进同一类别。
+    {
+      "type": "ipToASN",
+      "action": "add",
+      "args": {
+        "ipv4": "./iptoasn/ip2asn-v4.tsv.gz",
+        "ipv6": "./iptoasn/ip2asn-v6.tsv.gz",
+        "wantedList": {
+          "cloudflare": [
+            "AS402542", "AS400095", "AS395747", "AS394536", "AS209242", "AS203898",
+            "AS202623", "AS14789", "AS139242", "AS133877", "AS13335", "AS132892"
+          ],
+          "facebook": ["AS63293", "AS54115", "AS34825", "AS32934", "AS149642"],
+          "fastly": ["AS895", "AS54113", "AS394192"],
+          "google": [
+            "AS6432", "AS55023", "AS45566", "AS43515", "AS41264", "AS40873", "AS396982",
+            "AS396178", "AS395973", "AS394639", "AS394507", "AS394089", "AS36987",
+            "AS36561", "AS36520", "AS36492", "AS36411", "AS36385", "AS36384", "AS36383",
+            "AS36040", "AS36039", "AS33715", "AS32381", "AS26910", "AS26684", "AS22859",
+            "AS22577", "AS214611", "AS214609", "AS209539", "AS209519", "AS209504",
+            "AS19527", "AS19448", "AS19425", "AS16591", "AS16550", "AS15169",
+            "AS151231", "AS13949", "AS139190", "AS139070"
+          ],
+          "netflix": ["AS55095", "AS40027", "AS394406", "AS2906"],
+          "telegram": ["AS62041", "AS62014", "AS59930", "AS44907", "AS211157"],
+          "twitter": ["AS63179", "AS54888", "AS35995", "AS13414"]
+        }
+      }
+    },
+
+    // ── 3. 类别维度（官方公布的 CIDR 精确列表）──────────────────────────────
+    // 与按 ASN 归类互为补充：ASN 覆盖面更宽，官方列表更精确。
+    {
+      "type": "text",
+      "action": "add",
+      "args": {
+        "name": "cn",
+        "uri": "https://raw.githubusercontent.com/gaoyifan/china-operator-ip/ip-lists/china.txt",
+        "onlyIPType": "ipv4"
+      }
+    },
+    {
+      "type": "text",
+      "action": "add",
+      "args": {
+        "name": "cn",
+        "uri": "https://raw.githubusercontent.com/gaoyifan/china-operator-ip/ip-lists/china6.txt",
+        "onlyIPType": "ipv6"
+      }
+    },
+    {
+      "type": "text",
+      "action": "add",
+      "args": {
+        "name": "tor",
+        "uri": "https://check.torproject.org/torbulkexitlist"
+      }
+    },
+    {
+      "type": "text",
+      "action": "add",
+      "args": {
+        "name": "cloudflare",
+        "uri": "https://www.cloudflare.com/ips-v4"
+      }
+    },
+    {
+      "type": "text",
+      "action": "add",
+      "args": {
+        "name": "cloudflare",
+        "uri": "https://www.cloudflare.com/ips-v6"
+      }
+    },
+    {
+      "type": "text",
+      "action": "add",
+      "args": {
+        "name": "telegram",
+        "uri": "https://core.telegram.org/resources/cidr.txt"
+      }
+    },
+    {
+      "type": "json",
+      "action": "add",
+      "args": {
+        "name": "google",
+        "uri": "https://www.gstatic.com/ipranges/goog.json",
+        "jsonPath": ["prefixes.#.ipv4Prefix", "prefixes.#.ipv6Prefix"]
+      }
+    },
+    {
+      "type": "json",
+      "action": "add",
+      "args": {
+        "name": "google",
+        "uri": "https://www.gstatic.com/ipranges/cloud.json",
+        "jsonPath": ["prefixes.#.ipv4Prefix", "prefixes.#.ipv6Prefix"]
+      }
+    },
+    {
+      "type": "json",
+      "action": "add",
+      "args": {
+        "name": "fastly",
+        "uri": "https://api.fastly.com/public-ip-list",
+        "jsonPath": ["addresses", "ipv6_addresses"]
+      }
+    },
+    {
+      "type": "json",
+      "action": "add",
+      "args": {
+        "name": "cloudfront",
+        "uri": "https://ip-ranges.amazonaws.com/ip-ranges.json",
+        "jsonPath": [
+          "prefixes.#(service==\"CLOUDFRONT\")#.ip_prefix",
+          "ipv6_prefixes.#(service==\"CLOUDFRONT\")#.ipv6_prefix"
+        ]
+      }
+    },
+
+    // ── 4. 私有与保留地址 ───────────────────────────────────────────────────
     {
       "type": "private",
       "action": "add"
     }
   ],
+
   "output": [
-    {
-      "type": "v2rayGeoIPDat",
-      "action": "output",
-      "args": {
-        "outputName": "geoip.dat"
-      }
-    },
-    {
-      "type": "v2rayGeoIPDat",
-      "action": "output",
-      "args": {
-        "outputName": "geoip-asn.dat"
-      }
-    },
-    {
-      "type": "v2rayGeoIPDat",
-      "action": "output",
-      "args": {
-        "oneFilePerList": true,
-        "wantedList": ["private"]
-      }
-    },
+    // overwriteList 里的名字会被排到最后写入，从而覆盖先前写入的国家码 ——
+    // 这是 mmdb 的格式约束：同一段地址在上层只能落一份数据。
+    // 因此顺序即优先级，越靠后越优先。
     {
       "type": "maxmindMMDB",
       "action": "output",
       "args": {
-        "outputName": "Country.mmdb"
+        "outputDir": "./output",
+        "outputName": "Country.mmdb",
+        "overwriteList": [
+          "cn",
+          "cloudflare",
+          "cloudfront",
+          "facebook",
+          "fastly",
+          "google",
+          "netflix",
+          "telegram",
+          "twitter",
+          "tor",
+          "private"
+        ]
       }
-    },
-    {
-      "type": "maxmindMMDB",
-      "action": "output",
-      "args": {
-        "outputName": "Country-asn.mmdb"
-      }
-    },
-    {
-      "type": "text",
-      "action": "output"
     }
   ]
 }
