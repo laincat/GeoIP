@@ -1,24 +1,94 @@
-# To get started with Dependabot version updates, you'll need to specify which
-# package ecosystems to update and where the package manifests are located.
-# Please see the documentation for all configuration options:
-# https://help.github.com/github/administering-a-repository/configuration-options-for-dependency-updates
+# ==============================================================================
+#  Dependabot —— 本仓库有两个真实生态
+#
+#    gomod           go.mod / go.sum，8 个直接依赖 + 5 个间接依赖
+#    github-actions  build.yml 里的 3 个 Action
+#
+#  ⚠️ 这个仓库的产物是**可复现构建**的（build.yml 里有「两次构建必须字节一致」
+#     的硬校验），所以依赖更新不能只看 CI 绿：
+#
+#     · 升级 maxmind/mmdbwriter 或 maxminddb-golang 会改变 mmdb 的写出方式，
+#       产物字节可能因此变化 —— 那属于**产物语义变化**，不是简单的版本升级。
+#       合这类 PR 前必须看 build.yml 的「Check reproducibility」是否仍通过。
+#     · 该仓库每天 04:30（Asia/Shanghai）自动构建并发布 Country.mmdb，
+#       依赖被合入后会在下一轮构建里体现，所以 PR 不必抢时间。
+#
+#  Actions 版本现状（2026-09-24 核）：
+#    actions/checkout@v7         上游最新 v7.0.1
+#    actions/setup-go@v7         上游最新 v7.0.0
+#    actions/cache@v6            上游最新 v6.1.0
+#    softprops/action-gh-release@v3  上游最新 v3.0.3
+#  写的都是 major 浮动标签，minor / patch 会自行生效；Dependabot 主要在上游发
+#  新 major 时提醒 —— 所以看不到 PR 是正常的。
+# ==============================================================================
 
 version: 2
-updates:
-  - package-ecosystem: "github-actions"
-    directory: "/"
-    schedule:
-      interval: "daily"
-      timezone: "Asia/Shanghai"
-      time: "07:00"
-    pull-request-branch-name:
-      separator: "-"
 
+updates:
+  # --------------------------------------------------------------------------
+  #  Go 模块
+  # --------------------------------------------------------------------------
   - package-ecosystem: "gomod"
     directory: "/"
+
     schedule:
-      interval: "daily"
+      # GeoIP 库的上游（MaxMind / ipinfo）以月计迭代，每日检查纯属浪费
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
       timezone: "Asia/Shanghai"
-      time: "07:00"
-    pull-request-branch-name:
-      separator: "-"
+
+    open-pull-requests-limit: 5
+
+    # minor + patch 合并成一个 PR，major 单独开 —— major 可能改变产物字节，
+    # 必须连 build.yml 的可复现校验一起单独看清再合
+    groups:
+      go-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+    # 与本仓库既有风格（feat / fix / chore / docs）对齐
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+
+    labels:
+      - "dependencies"
+
+    assignees:
+      - "laincat"
+
+  # --------------------------------------------------------------------------
+  #  Actions 的版本
+  # --------------------------------------------------------------------------
+  - package-ecosystem: "github-actions"
+    # 注意：这里指「workflow 文件所在目录」，不是依赖清单所在目录
+    directory: "/"
+
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Shanghai"
+
+    open-pull-requests-limit: 5
+
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+    commit-message:
+      prefix: "ci"
+
+    labels:
+      - "dependencies"
+
+    assignees:
+      - "laincat"
