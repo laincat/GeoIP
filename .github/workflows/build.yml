@@ -245,25 +245,27 @@ jobs:
           tag_name: ${{ env.RELEASE_TAG }}
           name: GeoIP 产物（滚动更新）
           body: |
-            Country.mmdb —— GeoLite2-Country 结构 + 类别覆盖（CLOUDFLARE / GOOGLE /
-            TELEGRAM / NETFLIX / PRIVATE / CN 等），由 IPInfo 免费 country.csv 与
-            iptoasn.com 构建。
+            GeoIP 四格式产物，同一份 IP 数据 + 域名数据，覆盖 mihomo / Surge /
+            Clash / sing-box 的 `geoip`、`mmdb`、`asn`、`geosite` 四种字段。
 
             本 Release 的 tag 固定为 `geoip`，**每次构建覆盖同名附件** ——
             所以这里永远只有一条 Release、一个 tag，内容滚动更新。
             （旧的历史 tag 已于 2026-09-17 清理。）
 
-            固定下载地址（永远指向最新一版）：
-
-            https://github.com/laincat/GeoIP/releases/latest/download/Country.mmdb
-
             当前版本：`${{ env.BUILD_STAMP }}`
 
-            | 文件 | 说明 |
-            |---|---|
-            | `Country.mmdb` | 产物本体 |
-            | `Country.mmdb.sha256sum` | 校验和，用法见仓库 README |
-            | `version` | 构建时间戳（UTC，`YYYYMMDDHHMM`） |
+            | 文件 | 对应字段 | 说明 |
+            |---|---|---|
+            | `Country.mmdb` | mihomo `mmdb` / Surge GEOIP | 国家码 + 服务类别（CLOUDFLARE / GOOGLE / TELEGRAM / NETFLIX / CN 等） |
+            | `geoip.dat` | mihomo `geoip`（v2ray 容器） | 同源 IP 数据的 v2ray GeoIP 格式 |
+            | `GeoLite2-ASN.mmdb` | mihomo `asn` | iptoasn 全量 ASN（`autonomous_system_number` + 组织名） |
+            | `geosite.dat` | mihomo `geosite` | 域名数据（category-ai / ozon / advertising），来自 laincat/Rules |
+            | `artifacts.sha256sum` | — | 上述四个产物的校验和 |
+            | `version` | — | 构建时间戳（UTC，`YYYYMMDDHHMM`） |
+
+            固定下载地址（永远指向最新一版，把文件名换成任意产物即可）：
+
+            https://github.com/laincat/GeoIP/releases/latest/download/Country.mmdb
           files: |
             output/Country.mmdb
             output/Country.mmdb.sha256sum
