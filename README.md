@@ -11,7 +11,7 @@
 
 | 文件 | 对应字段 | 数据内容 |
 |---|---|---|
-| `Country.mmdb` | mihomo `mmdb` / Surge `GEOIP` | 国家码 + 服务类别（CLOUDFLARE / GOOGLE / TELEGRAM / NETFLIX / CN 等） |
+| `Country.mmdb` | mihomo `mmdb` / Surge `GEOIP` | 国家码 + 服务类别（CN / CLOUDFLARE / CLOUDFRONT / FACEBOOK / FASTLY / GOOGLE / NETFLIX / TELEGRAM / TWITTER / TOR / PRIVATE） |
 | `geoip.dat` | mihomo `geoip`（v2ray 容器） | 同源 IP 数据的 v2ray GeoIP 格式 |
 | `GeoLite2-ASN.mmdb` | mihomo `asn` | iptoasn 全量 ASN（ASN 号 + 组织名） |
 | `geosite.dat` | mihomo `geosite` | 域名数据（category-ai / ozon / advertising），来自 [laincat/Rules](https://github.com/laincat/Rules) |
@@ -65,17 +65,21 @@ geox-url:
   geosite: "https://github.com/laincat/GeoIP/releases/latest/download/geosite.dat"
 ```
 
-## Country.mmdb 里有什么
+## 每个产物里的条目
 
-`Country.mmdb` 的每个条目就是一个可供 `GEOIP` 规则引用的标签，含两个维度：
+四个产物各自的标签（条目）如下。`geoip.dat` 与 `Country.mmdb` 是同一份 IP 数据的两种容器，标签集相同；`GeoLite2-ASN.mmdb` 与 `geosite.dat` 各自独立。
 
-**国家与地区** —— ISO 3166-1 alpha-2 全量国家码，另有 `PRIVATE` 覆盖私有与保留地址段。
+### Country.mmdb / geoip.dat
 
-**服务类别** —— 这些标签优先于国家码，某段地址若既属于 `US` 又被归入 `CLOUDFLARE`，最终落库的是 `CLOUDFLARE`：
+每个条目就是一个可供 `GEOIP` 规则引用的标签，含两个维度：
+
+- **国家与地区**：ISO 3166-1 alpha-2 全量国家码（如 `US`、`JP`、`DE` …），另有 `PRIVATE` 覆盖私有与保留地址段。
+- **服务类别**：这些标签优先于国家码，某段地址若既属于 `US` 又被归入 `CLOUDFLARE`，最终落库的是 `CLOUDFLARE`。
 
 | 条目 | 含义 | 数据来源 |
 |---|---|---|
-| `CN` | 中国大陆（国家码与运营商 IP 列表合并） | IPInfo + china-operator-ip |
+| 全部 ISO 国家码（`CN` / `US` / `JP` / `DE` …） | 国家与地区 | IPInfo 免费 `country.csv` |
+| `CN` | 中国大陆（国家码与运营商 IP 列表合并） | IPInfo + [china-operator-ip](https://github.com/gaoyifan/china-operator-ip) |
 | `CLOUDFLARE` | Cloudflare | 官方 v4/v6 列表 + ASN |
 | `CLOUDFRONT` | Amazon CloudFront | AWS `ip-ranges.json` |
 | `FACEBOOK` | Meta / Facebook | ASN |
@@ -87,7 +91,24 @@ geox-url:
 | `TOR` | Tor 出口节点 | Tor Project 官方列表 |
 | `PRIVATE` | 私有、保留、回环、组播地址段 | 内置常量 |
 
-`GeoLite2-ASN.mmdb` 的结构兼容 MaxMind GeoLite2-ASN（`autonomous_system_number` + `autonomous_system_organization`），mihomo 直接可读。`geosite.dat` 里的分类名是 `category-ai`、`ozon`、`advertising`。
+### GeoLite2-ASN.mmdb
+
+结构兼容 MaxMind GeoLite2-ASN，每个 IP 段返回两个字段（mihomo 的 `asn` 字段直接可读）：
+
+| 字段 | 含义 | 数据来源 |
+|---|---|---|
+| `autonomous_system_number` | ASN 号（如 `13335`） | [iptoasn.com](https://iptoasn.com/) 全量 IP-to-ASN 转储 |
+| `autonomous_system_organization` | ASN 组织名（如 `CLOUDFLARENET`） | 同上 |
+
+### geosite.dat
+
+域名数据（来自 [laincat/Rules](https://github.com/laincat/Rules)），三个分类：
+
+| 分类 | 含义 | 数据来源 |
+|---|---|---|
+| `category-ai` | AI 服务域名 | Rules 的 `Surge/Ruleset/AI.list` |
+| `ozon` | Ozon 电商域名 | Rules 的 `Surge/Ruleset/Ozon.list` |
+| `advertising` | 广告 / 追踪域名 | Rules 的 `Surge/Advertising/Advertising.list` |
 
 ## 数据来源
 
