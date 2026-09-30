@@ -15,12 +15,31 @@ type Entry struct {
 	ipv6Builder *netipx.IPSetBuilder
 	ipv4Set     *netipx.IPSet
 	ipv6Set     *netipx.IPSet
+	extra       map[string]string
 }
 
 func NewEntry(name string) *Entry {
 	return &Entry{
 		name: strings.ToUpper(strings.TrimSpace(name)),
 	}
+}
+
+// SetExtra 给条目挂一段可选元数据。ASN 输入插件用它携带「AS 组织名」这类
+// 无法用 name 表达的信息，供 ASN 输出插件落库时读取。普通地理条目不会用到。
+func (e *Entry) SetExtra(key, value string) {
+	if e.extra == nil {
+		e.extra = make(map[string]string)
+	}
+	e.extra[key] = value
+}
+
+// GetExtra 读取 SetExtra 写入的元数据；未写入时返回零值与 false。
+func (e *Entry) GetExtra(key string) (string, bool) {
+	if e.extra == nil {
+		return "", false
+	}
+	v, ok := e.extra[key]
+	return v, ok
 }
 
 func (e *Entry) GetName() string {

@@ -104,12 +104,19 @@ jobs:
           IPINFO_TOKEN: ${{ secrets.IPINFO_TOKEN }}
         run: bash ./scripts/fetch-data.sh
 
-      - name: Build Country.mmdb
+      - name: Build Country.mmdb + geoip.dat + GeoLite2-ASN.mmdb
         run: |
           set -euo pipefail
           go build -o ./geoip ./cmd/geoip
           ./geoip convert -c ./config.json
+          ./geoip convert -c ./config-asn.json
           ls -l ./output
+
+      - name: Build geosite.dat
+        run: |
+          set -euo pipefail
+          bash ./scripts/build-geosite.sh
+          ls -l ./output/geosite.dat
 
       - name: Check reproducibility
         run: |
@@ -155,8 +162,10 @@ jobs:
           set -euo pipefail
           cd ./output
           sha256sum Country.mmdb > Country.mmdb.sha256sum
+          sha256sum geoip.dat GeoLite2-ASN.mmdb geosite.dat > artifacts.sha256sum
           printf '%s\n' "${BUILD_STAMP}" > version
           cat Country.mmdb.sha256sum
+          cat artifacts.sha256sum
           cat version
 
       # 空跑短路：产物与线上已发布的那份**逐字节相同**时，后面三步发布动作
@@ -258,6 +267,10 @@ jobs:
           files: |
             output/Country.mmdb
             output/Country.mmdb.sha256sum
+            output/geoip.dat
+            output/GeoLite2-ASN.mmdb
+            output/geosite.dat
+            output/artifacts.sha256sum
             output/version
           make_latest: true
           overwrite_files: true

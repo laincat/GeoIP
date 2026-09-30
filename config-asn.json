@@ -1,0 +1,30 @@
+{
+  // 独立产物：GeoLite2-ASN.mmdb
+  //
+  // 全量 ASN 条目（~10 万）必须与 Country.mmdb 分开构建 —— 共用 container 时，
+  // Country 输出会把这些 ASxxxx 条目当国家码一并写进库，污染国家维度。
+  // 所以这里单独一个 config，单独跑一次 geoip convert。
+  //
+  // 用法：geoip convert -c ./config-asn.json
+  "input": [
+    {
+      "type": "ipToASNFull",
+      "action": "add",
+      "args": {
+        "ipv4": "./data/iptoasn/ip2asn-v4.tsv.gz",
+        "ipv6": "./data/iptoasn/ip2asn-v6.tsv.gz"
+      }
+    }
+  ],
+
+  "output": [
+    {
+      "type": "asnMMDB",
+      "action": "output",
+      "args": {
+        "outputDir": "./output",
+        "outputName": "GeoLite2-ASN.mmdb"
+      }
+    }
+  ]
+}
