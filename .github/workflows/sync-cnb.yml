@@ -1,0 +1,53 @@
+name: 同步到 cnb.cool
+
+# 任何 master 提交都同步到 CNB 镜像，独立于 Build workflow。
+# 这样文档 / 配置 / 代码的改动也不会漏同步。
+
+on:
+  schedule:
+    # 每天一次兜底，防止某次 push 事件丢失后两边长期不一致
+    - cron: "17 22 * * *"
+  workflow_dispatch:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-cnb
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
+      CNB_USER: ${{ secrets.CNB_USER }}
+      CNB_REPO: laincat/GeoIP
+
+    steps:
+      - name: 取出仓库
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: 同步到 cnb.cool（直接推 master + main；没配 secret 就跳过）
+        if: ${{ env.CNB_TOKEN != '' }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          # GitHub 用 master，CNB 的默认分支是 main。两边都 force-push，保证
+          # 无论订阅地址写 master 还是 main 都拿到同一份最新内容。
+          CRED='!f() { echo "username='"${CNB_USER}"'"; echo "password='"${CNB_TOKEN}"'"; }; f'
+          git -c credential.helper= -c credential.helper="$CRED" \
+              push --force "https://cnb.cool/${CNB_REPO}.git" HEAD:master HEAD:main
+          echo "已镜像到 cnb.cool/${CNB_REPO}（master/main 均指向 $(git rev-parse --short HEAD)）"
+
+      - name: 未配置 secret（跳过）
+        if: ${{ env.CNB_TOKEN == '' }}
+        shell: bash
+        run: |
+          echo "CNB_TOKEN 未配置，跳过同步"
