@@ -10,6 +10,11 @@ on:
   workflow_dispatch:
   push:
     branches: [master]
+  # Build 工作流用 GITHUB_TOKEN 自动 push release 分支，不会触发别的 workflow，
+  # 所以监听它完成后跑一次，把文档/产物之外的代码同步过去。
+  workflow_run:
+    workflows: ["Build Country.mmdb"]
+    types: [completed]
 
 permissions:
   contents: read
