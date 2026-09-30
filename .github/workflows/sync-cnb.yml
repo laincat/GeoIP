@@ -1,6 +1,6 @@
 name: 同步到 cnb.cool
 
-# 任何 master 提交都同步到 CNB 镜像，独立于 Build workflow。
+# 任何 main 提交都同步到 CNB 镜像，独立于 Build workflow。
 # 这样文档 / 配置 / 代码的改动也不会漏同步。
 
 on:
@@ -9,7 +9,7 @@ on:
     - cron: "17 22 * * *"
   workflow_dispatch:
   push:
-    branches: [master]
+    branches: [main]
   # Build 工作流用 GITHUB_TOKEN 自动 push release 分支，不会触发别的 workflow，
   # 所以监听它完成后跑一次，把文档/产物之外的代码同步过去。
   workflow_run:
@@ -39,17 +39,16 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: 同步到 cnb.cool（直接推 master + main；没配 secret 就跳过）
+      - name: 同步到 cnb.cool（直接推 main 历史；没配 secret 就跳过）
         if: ${{ env.CNB_TOKEN != '' }}
         shell: bash
         run: |
           set -euxo pipefail
-          # GitHub 用 master，CNB 的默认分支是 main。两边都 force-push，保证
-          # 无论订阅地址写 master 还是 main 都拿到同一份最新内容。
+          # 两边都用 main，直接 force-push main，history 完全一致。
           CRED='!f() { echo "username='"${CNB_USER}"'"; echo "password='"${CNB_TOKEN}"'"; }; f'
           git -c credential.helper= -c credential.helper="$CRED" \
-              push --force "https://cnb.cool/${CNB_REPO}.git" HEAD:master HEAD:main
-          echo "已镜像到 cnb.cool/${CNB_REPO}（master/main 均指向 $(git rev-parse --short HEAD)）"
+              push --force "https://cnb.cool/${CNB_REPO}.git" HEAD:main
+          echo "已镜像到 cnb.cool/${CNB_REPO}（main 指向 $(git rev-parse --short HEAD)）"
 
       - name: 未配置 secret（跳过）
         if: ${{ env.CNB_TOKEN == '' }}

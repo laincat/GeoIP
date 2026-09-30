@@ -42,7 +42,7 @@ https://github.com/laincat/GeoIP/releases/latest/download/version
 https://cdn.jsdelivr.net/gh/laincat/GeoIP@release/Country.mmdb
 ```
 
-CNB 镜像（国内直连更友好，`main` 与 `master` 分支都保持最新）：
+CNB 镜像（国内直连更友好）：
 
 ```
 https://cnb.cool/laincat/GeoIP/-/raw/main/Country.mmdb
@@ -51,7 +51,7 @@ https://cnb.cool/laincat/GeoIP/-/raw/main/GeoLite2-ASN.mmdb
 https://cnb.cool/laincat/GeoIP/-/raw/main/geosite.dat
 ```
 
-> CNB 侧的 `main` 是仓库默认分支，与 GitHub 的 `master` 内容一致；写哪个分支名都能拿到同一份数据。
+> CNB 与 GitHub 两侧都用 `main` 分支，内容一致。
 
 mihomo 配置里这样引：
 
