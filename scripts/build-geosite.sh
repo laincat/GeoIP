@@ -65,21 +65,20 @@ if [ ! -d "$V2FLY_DIR" ]; then
   git clone --depth 1 https://github.com/v2fly/domain-list-community.git "$V2FLY_DIR"
 fi
 
-cat > "${DLC_DIR}/geosite.json" <<EOF
+# profile 文件必须放在 datapath 目录之外，否则 v2fly 会把它当作一个
+# 列表名解析（报 "invalid list name: GEOSITE.JSON"）。
+PROFILE="${ROOT}/data/geosite-profile.json"
+cat > "$PROFILE" <<EOF
 [
   {"name": "geosite.dat", "mode": "allowlist", "lists": ["category-ai", "ozon", "advertising"]}
 ]
 EOF
-
-# 把我们的 data 目录作为 datapath 传入（v2fly 的 main.go 默认 ./data）。
-# 这里直接在 v2fly 目录里建软链指向我们的 dlc 目录，避免污染官方仓库。
-ln -sfn "$DLC_DIR" "${V2FLY_DIR}/data-laincat"
 
 cd "$V2FLY_DIR"
 go run . \
   -datapath "$DLC_DIR" \
   -outputname "geosite.dat" \
   -outputdir "$OUT" \
-  -datprofile "${DLC_DIR}/geosite.json"
+  -datprofile "$PROFILE"
 
 log "✅ geosite.dat 已生成：${OUT}/geosite.dat"
