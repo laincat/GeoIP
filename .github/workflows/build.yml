@@ -142,10 +142,14 @@ jobs:
           go install -v "github.com/maxmind/mmdbverify@${MMDBVERIFY_VERSION}"
           "$(go env GOPATH)/bin/mmdbverify" -file ./output/Country.mmdb
 
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
       - name: Smoke test lookups
         run: |
           set -euo pipefail
-          python3 -m pip install --quiet "maxminddb==2.6.1"
+          python3 -m pip install --quiet -r requirements-ci.txt
           python3 ./scripts/verify_mmdb.py ./output/Country.mmdb
 
       - name: Cross-check against IPInfo source
