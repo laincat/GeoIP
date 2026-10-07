@@ -47,10 +47,12 @@ mkdir -p "$DLC_DIR"
 rm -rf "${DLC_DIR:?}"/*
 
 # 拉取三类域名列表并转 dlc 格式。
-# AI：用 AI.list（主文件，纯域名）；Ozon：Ozon.list；去广告：Advertising.list。
+# AI：用 AI.list（主文件，纯域名）；Ozon：Ozon.list；
+# 去广告：Advertising.Reject.list（2026-10 分片重构后的纯域名主库，
+# 旧的合并版 Advertising.list 已删除）。
 curl -fsSL --retry 3 "${RULES_REPO}/Surge/Ruleset/AI.list" -o "${DLC_DIR}/ai.raw"
 curl -fsSL --retry 3 "${RULES_REPO}/Surge/Ruleset/Ozon.list" -o "${DLC_DIR}/ozon.raw"
-curl -fsSL --retry 3 "${RULES_REPO}/Surge/Advertising/Advertising.list" -o "${DLC_DIR}/advertising.raw"
+curl -fsSL --retry 3 "${RULES_REPO}/Surge/Advertising/Advertising.Reject.list" -o "${DLC_DIR}/advertising.raw"
 
 convert_list "${DLC_DIR}/ai.raw" "${DLC_DIR}/category-ai"
 convert_list "${DLC_DIR}/ozon.raw" "${DLC_DIR}/ozon"
