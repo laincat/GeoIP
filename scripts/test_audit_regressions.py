@@ -6,7 +6,7 @@ from pathlib import Path
 from convert_domains import convert
 from release_delta import REQUIRED, unchanged
 from source_snapshot import Networks, expected_code, json_prefixes, ranges
-from verify_products import fields, lists
+from verify_products import fields, lists, canonical_domains, verify_geosite
 import gzip
 
 
@@ -14,6 +14,28 @@ class Regressions(unittest.TestCase):
     def test_exact_suffix(self):
         self.assertEqual(convert(['exact.example', '.suffix.example']), ['domain:suffix.example', 'full:exact.example'])
         self.assertNotIn('domain:exact.example', convert(['exact.example']))
+
+    def test_semantic_redundancy(self):
+        self.assertEqual(canonical_domains({'full:a.example', 'domain:a.example', 'full:b.a.example', 'domain:c.a.example', 'full:other.example'}),
+                         {'domain:a.example', 'full:other.example'})
+
+    def test_geosite_wire_roundtrip(self):
+        def wire(n, value):
+            self.assertLess(len(value), 128)
+            return bytes([n * 8 + 2, len(value)]) + value
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            data = b''
+            for name in ('category-ai', 'ozon', 'advertising'):
+                (root / name).write_text('full:exact.example\ndomain:suffix.example\n')
+                domains = wire(2, bytes([8, 3]) + wire(2, b'exact.example')) + wire(2, bytes([8, 2]) + wire(2, b'suffix.example'))
+                data += wire(1, wire(1, name.upper().encode()) + domains)
+            path = root / 'geosite.dat'
+            path.write_bytes(data)
+            verify_geosite(path, root)
+            path.write_bytes(data.replace(bytes([8, 3]), bytes([8, 2])))
+            with self.assertRaises(ValueError):
+                verify_geosite(path, root)
 
     def test_bad_domains(self):
         for domain in ('com', '-bad.example', 'bad-.example', 'a..example', 'a.*.example', 'a.' + 'x' * 64):

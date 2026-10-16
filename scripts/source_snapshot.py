@@ -9,6 +9,8 @@ import json
 import re
 import sys
 import urllib.request
+import urllib.error
+import time
 from pathlib import Path
 from verify_mmdb_vs_source import strip_jsonc
 
@@ -172,8 +174,23 @@ def snapshot():
         uri = args.get('uri', '')
         if uri.startswith('https://'):
             path = directory / f'{n}.input'
-            with urllib.request.urlopen(uri, timeout=60) as response:
-                data = response.read(64 * 1024 * 1024 + 1)
+            print(f'Snapshot: {uri}', flush=True)
+            request = urllib.request.Request(uri, headers={
+                'User-Agent': 'laincat-GeoIP/1.0 (+https://github.com/laincat/GeoIP)',
+            })
+            for attempt in range(3):
+                try:
+                    with urllib.request.urlopen(request, timeout=60) as response:
+                        data = response.read(64 * 1024 * 1024 + 1)
+                    break
+                except urllib.error.HTTPError as error:
+                    if error.code < 500 or attempt == 2:
+                        raise
+                    time.sleep(3)
+                except (urllib.error.URLError, TimeoutError):
+                    if attempt == 2:
+                        raise
+                    time.sleep(3)
             if not data or len(data) > 64 * 1024 * 1024:
                 raise ValueError('empty/oversized service response')
             path.write_bytes(data)
