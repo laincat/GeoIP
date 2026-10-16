@@ -260,3 +260,5 @@ python3 scripts/source_snapshot.py manifest
 ```
 
 输入快照只保证同一次构建/重复构建使用同一份数据。`inputs.json` 是可核对的来源哈希，不是输入归档；若要在未来复现旧版本，还需自行保留对应输入快照。
+
+CNB 镜像使用当前 main 并以 force-with-lease 防止覆盖并发更新。令牌仅发往 HTTPS api.cnb.cool，API 不跟随重定向；上传限制在 CNB/Tencent COS 的 HTTPS 地址。发布最后上传 `snapshot-manifest.json`，镜像用不可变 asset ID 下载、核对所有文件 SHA-256，并在下载前后验证版本未变，拒绝半更新的滚动 Release。

@@ -37,18 +37,27 @@ jobs:
       - name: 取出仓库
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: main
           fetch-depth: 0
+          persist-credentials: false
 
       - name: 同步到 cnb.cool（直接推 main 历史；没配 secret 就跳过）
         if: ${{ env.CNB_TOKEN != '' }}
         shell: bash
         run: |
-          set -euxo pipefail
-          # 两边都用 main，直接 force-push main，history 完全一致。
+          set -euo pipefail
+          # Reruns mirror current main, never a historical event SHA.
+          git fetch origin main
+          git checkout --detach origin/main
+          SOURCE=$(git rev-parse HEAD)
           CRED='!f() { echo "username='"${CNB_USER}"'"; echo "password='"${CNB_TOKEN}"'"; }; f'
+          REMOTE="https://cnb.cool/${CNB_REPO}.git"
+          EXPECT=$(git -c credential.helper= -c credential.helper="$CRED" ls-remote "$REMOTE" refs/heads/main | cut -f1)
+          CURRENT=$(git ls-remote origin refs/heads/main | cut -f1)
+          [ "$SOURCE" = "$CURRENT" ] || { echo "main advanced; retry from latest main"; exit 1; }
           git -c credential.helper= -c credential.helper="$CRED" \
-              push --force "https://cnb.cool/${CNB_REPO}.git" HEAD:main
-          echo "已镜像到 cnb.cool/${CNB_REPO}（main 指向 $(git rev-parse --short HEAD)）"
+            push --force-with-lease="refs/heads/main:$EXPECT" "$REMOTE" "$SOURCE:refs/heads/main"
+          echo "Mirrored source SHA: $SOURCE" >> "$GITHUB_STEP_SUMMARY"
 
       # 把 GitHub Release 的附件镜像到 CNB Release：那边 releases 页面此前一直
       # 是空的（同步只推分支历史，从不建 Release）。CNB 没有 releases/latest
@@ -68,7 +77,14 @@ jobs:
           fi
           STAGE="$RUNNER_TEMP/cnb-assets"
           mkdir -p "$STAGE"
-          gh release download "$TAG" --dir "$STAGE" --clobber
+          # A new code push may precede the first sealed binary release. Wait
+          # for its successful build-completion event rather than mirror unsealed data.
+          if ! gh release view "$TAG" --json assets --jq '.assets[].name' | grep -qx snapshot-manifest.json; then
+            echo "Release seal not yet available; build-completion sync will publish it"
+            exit 0
+          fi
+          python tools/release_snapshot.py fetch "$STAGE"
+          (cd "$STAGE" && sha256sum -c artifacts.sha256sum && sha256sum -c Country.mmdb.sha256sum)
           echo "待镜像附件 $(find "$STAGE" -type f | wc -l) 个"
           python tools/publish_cnb_release.py --files-dir "$STAGE" --tag "$TAG" --ttl 0
 

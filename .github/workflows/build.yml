@@ -83,6 +83,8 @@ jobs:
           sha256sum Country.mmdb > Country.mmdb.sha256sum
           sha256sum Country.mmdb geoip.dat GeoLite2-ASN.mmdb geosite.dat > artifacts.sha256sum
           date -u +%Y%m%d%H%M > version
+      - name: Seal coherent release snapshot
+        run: python3 tools/release_snapshot.py build output --source "$GITHUB_SHA"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: verified-products
@@ -187,6 +189,16 @@ jobs:
             output/inputs.json
             output/version
           make_latest: true
+          overwrite_files: true
+          fail_on_unmatched_files: true
+
+      # Seal is uploaded only after every binary/checksum upload succeeds.
+      - name: Publish release snapshot seal last
+        if: steps.delta.outputs.skip != '1'
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: output/snapshot-manifest.json
           overwrite_files: true
           fail_on_unmatched_files: true
 

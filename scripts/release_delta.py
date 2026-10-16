@@ -10,7 +10,7 @@ import urllib.request
 from pathlib import Path
 
 PRODUCTS = ('Country.mmdb', 'geoip.dat', 'GeoLite2-ASN.mmdb', 'geosite.dat')
-REQUIRED = PRODUCTS + ('Country.mmdb.sha256sum', 'artifacts.sha256sum', 'inputs.json', 'version')
+REQUIRED = PRODUCTS + ('Country.mmdb.sha256sum', 'artifacts.sha256sum', 'inputs.json', 'version', 'snapshot-manifest.json')
 
 
 def sha256_stream(stream):
@@ -24,11 +24,22 @@ def unchanged(output, release, fetch):
     assets = {a['name']: a for a in release['assets']}
     if not set(REQUIRED) <= assets.keys():
         return False
+    # A stale/partial seal must be repaired even when binary bytes are unchanged.
+    with fetch(assets['snapshot-manifest.json']['browser_download_url']) as remote:
+        raw = remote.read()
+    if assets['snapshot-manifest.json'].get('digest') != 'sha256:' + hashlib.sha256(raw).hexdigest():
+        return False
+    seal = json.loads(raw)
+    files = seal.get('files', {})
+    if seal.get('schema') != 1 or set(files) != set(REQUIRED) - {'snapshot-manifest.json'}:
+        return False
+    if any(assets[name].get('digest') != 'sha256:' + digest for name, digest in files.items()):
+        return False
     for name in REQUIRED:
         path = output / name
         if not path.is_file() or path.stat().st_size == 0 or assets[name]['size'] == 0:
             return False
-        if name == 'version':
+        if name in ('version', 'snapshot-manifest.json'):
             continue
         if path.stat().st_size != assets[name]['size']:
             return False

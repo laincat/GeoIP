@@ -1,4 +1,6 @@
 import io
+import hashlib
+import json
 import ipaddress
 import tempfile
 import unittest
@@ -49,9 +51,10 @@ class Regressions(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             published = {name: b'old' for name in REQUIRED}
+            published['snapshot-manifest.json'] = json.dumps({'schema': 1, 'files': {name: hashlib.sha256(data).hexdigest() for name, data in published.items() if name != 'snapshot-manifest.json'}}).encode()
             for name, content in published.items():
                 (root / name).write_bytes(content)
-            release = {'assets': [{'name': n, 'size': 3, 'browser_download_url': n} for n in REQUIRED]}
+            release = {'assets': [{'name': n, 'size': len(published[n]), 'digest': 'sha256:' + hashlib.sha256(published[n]).hexdigest(), 'browser_download_url': n} for n in REQUIRED]}
             fetch = lambda name: io.BytesIO(published[name])
             self.assertTrue(unchanged(root, release, fetch))
             for name in ('geoip.dat', 'GeoLite2-ASN.mmdb', 'geosite.dat'):
