@@ -7,12 +7,7 @@ mmdbverify 只验二进制结构，不看内容；这个脚本补上内容维度
   2. 按固定步长抽样，在区间内取探测点（中点 + 一个随机点）；
   3. 查 Country.mmdb，比对答案。
 
-判据只有一条：**每个探测点的答案必须是「CSV 里的国家码」或「config.json 里
-overwriteList 声明的类别码」**。第二类是预期覆盖（cn / cloudflare / google …），
-第一类是直通。
-
-这样写的好处是判据来自配置本身 —— 如果哪天有人往 overwriteList 里塞了个把
-半个地球吞掉的条目，这里会立刻报出来，而不是被"预期覆盖"糊过去。
+判据：按同一份冻结输入独立解析覆盖网段，按 overwriteList 顺序计算每个 IP 的唯一预期结果。
 
 背景：mmdb 里的**网段数大于 CSV 行数**是正常的。一个非对齐区间会被拆成多个
 CIDR（实测平均约 1.7 个），所以网段数不是判据，逐点覆盖率才是。
@@ -35,10 +30,6 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-try:
-    import maxminddb
-except ImportError:  # pragma: no cover
-    sys.exit("❌ 需要 maxminddb：python3 -m pip install 'maxminddb==2.6.1'")
 
 SEED = 20260917
 DEFAULT_STEP = 47  # 1,428,262 行 / 47 ≈ 3 万个抽样区间
@@ -112,10 +103,11 @@ def probe_points(start: str, end: str, rng: random.Random):
 
 
 def main() -> int:
+    import maxminddb
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("mmdb", nargs="?", default="./output/Country.mmdb", help="待验证的 Country.mmdb")
     parser.add_argument("--csv", default="./data/ipinfo/country.csv.gz", help="IPInfo 源文件")
-    parser.add_argument("--config", default="./config.json", help="用于读取 overwriteList")
+    parser.add_argument("--config", default="./config.snapshot.json", help="用于读取 overwriteList")
     parser.add_argument("--step", type=int, default=DEFAULT_STEP, help=f"抽样步长（默认 {DEFAULT_STEP}）")
     parser.add_argument("--min-rate", type=float, default=100.0, help="要求的最低可解释率（默认 100）")
     args = parser.parse_args()
@@ -129,7 +121,11 @@ def main() -> int:
         print(f"❌ 找不到 {csv_path}（CI 里需要先下载数据）")
         return 1
 
-    override_codes = load_overwrite_codes(Path(args.config))
+    from source_snapshot import load_overrides, expected_code
+    order, networks = load_overrides(Path(args.config))
+    override_codes = set(order)
+    if args.step < 1 or not 0 <= args.min_rate <= 100:
+        parser.error("step must be positive and min-rate must be in [0, 100]")
     print(f"config.json 声明的覆盖类别: {sorted(override_codes) or '（无）'}")
 
     rng = random.Random(SEED)
@@ -165,14 +161,15 @@ def main() -> int:
                 checked += 1
                 families[f"IPv{ip.version}"] += 1
 
-                if got == code:
+                expected = expected_code(ip, code, order, networks)
+                if got == expected and got == code:
                     direct += 1
-                elif got in override_codes:
+                elif got == expected:
                     covered[got] += 1
                 else:
                     per_country_bad[code] += 1
                     if len(unexplained) < 25:
-                        unexplained.append((str(ip), code, got))
+                        unexplained.append((str(ip), expected, got))
 
     unexplained_total = sum(per_country_bad.values())
     explained = direct + sum(covered.values())
@@ -202,3 +199,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

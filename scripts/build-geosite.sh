@@ -18,54 +18,50 @@ RULES_REPO="https://raw.githubusercontent.com/laincat/Rules/${RULES_BRANCH}"
 
 log() { printf '%s\n' "$*"; }
 
-# 域名列表 → dlc 文件（一行 domain:xxx）。
-# 输入是 Surge 的 .list（前导 . 后缀 + 裸域名），这里只取域名，忽略 keyword/IP 行。
+# Exact entries remain full:, leading-dot suffix entries become domain:.
 convert_list() {
-  local src="$1" dst="$2"
-  : > "$dst"
-  local domain
-  while IFS= read -r domain; do
-    case "$domain" in
-      */*) continue ;;              # 忽略 CIDR
-      *:*) continue ;;              # 忽略 classical 规则行（DOMAIN-KEYWORD 等）
-      .*) domain="${domain#.}" ;;   # 前导 . = 后缀匹配 → 裸域名
-    esac
-    # 只保留合法域名：至少一个点，无空白，无通配
-    case "$domain" in
-      *[!a-zA-Z0-9.-]*) continue ;;
-      *..*) continue ;;
-      .*|*.) continue ;;
-      *) ;;
-    esac
-    if [ -n "$domain" ]; then
-      printf 'domain:%s\n' "$domain" >> "$dst"
-    fi
-  done < "$src"
+  python3 "${ROOT}/scripts/convert_domains.py" "$1" "$2"
 }
 
-mkdir -p "$DLC_DIR"
+# Resolve one Rules revision for all three lists; keep daily data updates.
+if [ "${1:-}" != "--reuse-inputs" ]; then
+  RULES_BRANCH=$(git ls-remote https://github.com/laincat/Rules.git "$RULES_BRANCH" | awk 'NR==1 {print $1}')
+  [[ "$RULES_BRANCH" =~ ^[0-9a-f]{40}$ ]] || { echo "Cannot resolve Rules revision" >&2; exit 1; }
+  RULES_REPO="https://raw.githubusercontent.com/laincat/Rules/${RULES_BRANCH}"
+mkdir -p "$DLC_DIR" "${ROOT}/data/geosite-raw"
 rm -rf "${DLC_DIR:?}"/*
 
 # 拉取三类域名列表并转 dlc 格式。
 # AI：用 AI.list（主文件，纯域名）；Ozon：Ozon.list；
 # 去广告：Advertising.Reject.list（2026-10 分片重构后的纯域名主库，
 # 旧的合并版 Advertising.list 已删除）。
-curl -fsSL --retry 3 "${RULES_REPO}/Surge/Ruleset/AI.list" -o "${DLC_DIR}/ai.raw"
-curl -fsSL --retry 3 "${RULES_REPO}/Surge/Ruleset/Ozon.list" -o "${DLC_DIR}/ozon.raw"
-curl -fsSL --retry 3 "${RULES_REPO}/Surge/Advertising/Advertising.Reject.list" -o "${DLC_DIR}/advertising.raw"
+curl -fsSL --retry 3 "${RULES_REPO}/Surge/Ruleset/AI.list" -o "${ROOT}/data/geosite-raw/ai.raw"
+curl -fsSL --retry 3 "${RULES_REPO}/Surge/Ruleset/Ozon.list" -o "${ROOT}/data/geosite-raw/ozon.raw"
+curl -fsSL --retry 3 "${RULES_REPO}/Surge/Advertising/Advertising.Reject.list" -o "${ROOT}/data/geosite-raw/advertising.raw"
 
-convert_list "${DLC_DIR}/ai.raw" "${DLC_DIR}/category-ai"
-convert_list "${DLC_DIR}/ozon.raw" "${DLC_DIR}/ozon"
-convert_list "${DLC_DIR}/advertising.raw" "${DLC_DIR}/advertising"
+convert_list "${ROOT}/data/geosite-raw/ai.raw" "${DLC_DIR}/category-ai"
+convert_list "${ROOT}/data/geosite-raw/ozon.raw" "${DLC_DIR}/ozon"
+convert_list "${ROOT}/data/geosite-raw/advertising.raw" "${DLC_DIR}/advertising"
 
-rm -f "${DLC_DIR}"/*.raw
+mkdir -p "${ROOT}/output"
+printf '%s\n' "$RULES_BRANCH" > "${ROOT}/data/rules-revision"
+fi
+
 
 # v2fly 构建工具：clone 官方仓库，跑它的 main.go 编译。
 # allowlist 模式挑出三个分类，输出 geosite.dat。
 V2FLY_DIR="${ROOT}/data/v2fly-domain-list"
-if [ ! -d "$V2FLY_DIR" ]; then
-  git clone --depth 1 https://github.com/v2fly/domain-list-community.git "$V2FLY_DIR"
+# Verified upstream revision. Dependencies are locked by its go.mod/go.sum.
+DLC_REVISION=dd4e3c080cee602512768e8109f89fafaa94b8ca
+if [ ! -d "$V2FLY_DIR/.git" ]; then
+  git init -q "$V2FLY_DIR"
+  git -C "$V2FLY_DIR" remote add origin https://github.com/v2fly/domain-list-community.git
 fi
+if ! git -C "$V2FLY_DIR" cat-file -e "${DLC_REVISION}^{commit}" 2>/dev/null; then
+  git -C "$V2FLY_DIR" fetch --depth 1 origin "$DLC_REVISION"
+fi
+git -C "$V2FLY_DIR" checkout --detach "$DLC_REVISION"
+[ "$(git -C "$V2FLY_DIR" rev-parse HEAD)" = "$DLC_REVISION" ]
 
 # profile 文件必须放在 datapath 目录之外，否则 v2fly 会把它当作一个
 # 列表名解析（报 "invalid list name: GEOSITE.JSON"）。
@@ -77,10 +73,11 @@ cat > "$PROFILE" <<EOF
 EOF
 
 cd "$V2FLY_DIR"
-go run . \
+go run -mod=readonly . \
   -datapath "$DLC_DIR" \
   -outputname "geosite.dat" \
   -outputdir "$OUT" \
   -datprofile "$PROFILE"
 
 log "✅ geosite.dat 已生成：${OUT}/geosite.dat"
+

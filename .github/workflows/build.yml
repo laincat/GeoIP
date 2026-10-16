@@ -2,211 +2,117 @@ name: Build Country.mmdb
 
 on:
   workflow_dispatch:
-
   schedule:
-    # 北京时间每天 04:30（UTC 20:30）
     - cron: "30 20 * * *"
-
   push:
-    branches:
-      - main
-    paths-ignore:
-      - "*.md"
-      - "LICENSE*"
-      - ".gitignore"
-      - ".github/dependabot.yml"
+    branches: [main]
+    paths-ignore: ["*.md", "LICENSE*", ".gitignore", ".github/dependabot.yml"]
 
-# 写权限是**两个**动作的前提，缺一不可：
-#   ① 推 release 分支（jsDelivr 那条链路）
-#   ② 创建 GitHub Release 并上传附件（releases/latest/download 那条链路）
-# 注意：这里的权限只能收窄、不能提权，所以仓库的
-# Settings -> Actions -> General -> Workflow permissions
-# 也必须设为 "Read and write"，否则两者都会 403。
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: build-country-mmdb
   cancel-in-progress: false
 
 env:
-  # 校验工具固定版本，**不要**用 @latest：
-  #   - @latest 每天可能指到不同代码，"同一提交重跑得到同一结果"就不成立了
-  #   - 缓存 key 也会因此天天失效，等于没缓存
   MMDBVERIFY_VERSION: v1.0.0
+  RELEASE_TAG: geoip
 
 jobs:
   build:
-    name: Build
+    name: Build and verify (read-only)
     runs-on: ubuntu-latest
-
+    timeout-minutes: 60
     steps:
-      - name: Checkout codebase
-        uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          fetch-depth: 0
-
-      - name: Set up Go
-        uses: actions/setup-go@v7
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: ./go.mod
-          cache-dependency-path: ./go.sum
-
-      # setup-go 只缓存 GOMODCACHE（依赖**下载**），不管 GOCACHE（依赖**编译**）。
-      # 后者才是 go build 的主要耗时，单独缓存一层。
-      - name: Cache Go build cache
-        uses: actions/cache@v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
-          path: ~/.cache/go-build
-          key: gocache-${{ runner.os }}-${{ hashFiles('go.sum', '**/*.go') }}
-          restore-keys: |
-            gocache-${{ runner.os }}-
-
-      # mmdbverify 是个纯命令行工具，装一次能用很久。
-      # 缓存整个 ~/go/bin，配合上面固定的 MMDBVERIFY_VERSION 做 key：
-      # 版本不变就是缓存命中，`go install` 直接变空操作。
-      - name: Cache Go installed tools
-        uses: actions/cache@v6
-        with:
-          path: ~/go/bin
-          key: gobin-${{ runner.os }}-mmdbverify-${{ env.MMDBVERIFY_VERSION }}
-
-      - name: Set variables
+          python-version: "3.13"
+      - name: Regression tests
         run: |
-          set -euo pipefail
-
-          # 固定 mmdb 的 build_epoch，使同一输入产出字节级一致的文件。
-          # 取「当前修订的提交时间」而非「现在」，这样重跑同一个提交
-          # 不会改变产物校验和（reproducible-builds 的标准做法）。
-          echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
-
-          # ── Release 用**固定 tag**，不再每版一个 tag ──────────────────────
-          # 原来是 TAG_NAME=$(date -u +%Y%m%d%H%M)，于是每天 2 次构建就多出
-          # 2 个 tag + 2 个 release，几年下来 tags 页面堆了 1409 个（2026-09-17
-          # 实测）。改成固定 tag 后：release 只有唯一一个，每次构建**覆盖同名
-          # 附件**（`softprops/action-gh-release` 的 `overwrite_files` 默认就是
-          # true），`releases/latest/download/<file>` 依旧永远指向最新一版。
-          # ⇒ 「一版一地址」变成「一个地址，内容滚动」。
-          echo "RELEASE_TAG=geoip" >> "$GITHUB_ENV"
-
-          # 构建时间戳仍然要留着 —— 但只作为「版本号」写进 version 文件
-          # 与 Release 正文，不再当 tag 用。
-          echo "BUILD_STAMP=$(date -u +%Y%m%d%H%M)" >> "$GITHUB_ENV"
-        shell: bash
-
-      # 下载逻辑收敛在 scripts/fetch-data.sh 里，README 的本地构建命令调的是
-      # 同一个脚本 —— 原先这段 curl 在 README 与 workflow 里各写了一遍，
-      # 改路径要改两处，判据也容易悄悄漂移。
-      # 脚本自带「体积下限 + gzip 完整性」双重校验：IPInfo 取数失败会返回
-      # HTTP 200 + 一小段错误正文，只看状态码分辨不出来。
+          python3 -m pip install --quiet -r requirements-ci.txt
+          python3 -m unittest discover -s scripts -p 'test_*.py'
+          go test -race ./...
+          go vet ./...
+      - name: Set reproducible epoch
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
       - name: Download input data
         env:
           IPINFO_TOKEN: ${{ secrets.IPINFO_TOKEN }}
         run: bash ./scripts/fetch-data.sh
-
-      - name: Build Country.mmdb + geoip.dat + GeoLite2-ASN.mmdb
+      - name: Snapshot and validate service inputs
+        run: python3 scripts/source_snapshot.py snapshot
+      - name: Build all four products
         run: |
           set -euo pipefail
           go build -o ./geoip ./cmd/geoip
-          ./geoip convert -c ./config.json
+          ./geoip convert -c ./config.snapshot.json
           ./geoip convert -c ./config-asn.json
-          ls -l ./output
-
-      - name: Build geosite.dat
+          bash scripts/build-geosite.sh
+      - name: Verify all-product reproducibility from frozen inputs
         run: |
           set -euo pipefail
-          bash ./scripts/build-geosite.sh
-          ls -l ./output/geosite.dat
-
-      - name: Check reproducibility
+          (cd output && sha256sum Country.mmdb geoip.dat GeoLite2-ASN.mmdb geosite.dat) > "$RUNNER_TEMP/first.sha256sum"
+          ./geoip convert -c ./config.snapshot.json
+          ./geoip convert -c ./config-asn.json
+          bash scripts/build-geosite.sh --reuse-inputs
+          (cd output && sha256sum -c "$RUNNER_TEMP/first.sha256sum")
+      - name: Verify both MMDB structures
         run: |
           set -euo pipefail
-
-          # 同一输入必须产出同一字节流，否则说明 build_epoch 之类的
-          # 非确定性因素溜进来了（曾经唯一的差异源就是它）。
-          cp ./output/Country.mmdb ./output/Country.mmdb.first
-          ./geoip convert -c ./config.json
-
-          if ! cmp -s ./output/Country.mmdb.first ./output/Country.mmdb; then
-            echo "::error::两次构建产物不一致，SOURCE_DATE_EPOCH 未生效"
-            cmp -l ./output/Country.mmdb.first ./output/Country.mmdb | head -20
-            exit 1
-          fi
-
-          rm -f ./output/Country.mmdb.first
-          echo "✅ 可复现：两次构建字节完全一致（$(stat -c%s ./output/Country.mmdb) 字节）"
-
-      - name: Verify mmdb structure
+          go install "github.com/maxmind/mmdbverify@${MMDBVERIFY_VERSION}"
+          "$(go env GOPATH)/bin/mmdbverify" -file output/Country.mmdb
+          "$(go env GOPATH)/bin/mmdbverify" -file output/GeoLite2-ASN.mmdb
+      - name: Verify independent content and rule semantics
         run: |
           set -euo pipefail
-          go install -v "github.com/maxmind/mmdbverify@${MMDBVERIFY_VERSION}"
-          "$(go env GOPATH)/bin/mmdbverify" -file ./output/Country.mmdb
-
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.13"
-
-      - name: Smoke test lookups
+          python3 scripts/verify_mmdb.py output/Country.mmdb
+          python3 scripts/verify_mmdb_vs_source.py output/Country.mmdb --config config.snapshot.json
+          python3 scripts/verify_products.py
+      - name: Generate complete manifests
         run: |
           set -euo pipefail
-          python3 -m pip install --quiet -r requirements-ci.txt
-          python3 ./scripts/verify_mmdb.py ./output/Country.mmdb
-
-      - name: Cross-check against IPInfo source
-        run: |
-          set -euo pipefail
-
-          # mmdbverify 只验二进制结构，verify_mmdb.py 只抽查几个固定 IP。
-          # 这一步按固定步长抽样三万个源区间逐点回查，要求每个答案都能由
-          # 「IPInfo 源文件」或「config.json 的 overwriteList」解释。
-          python3 ./scripts/verify_mmdb_vs_source.py ./output/Country.mmdb --csv ./data/ipinfo/country.csv.gz
-
-      - name: Generate checksum
-        run: |
-          set -euo pipefail
-          cd ./output
+          python3 scripts/source_snapshot.py manifest
+          cd output
           sha256sum Country.mmdb > Country.mmdb.sha256sum
-          sha256sum geoip.dat GeoLite2-ASN.mmdb geosite.dat > artifacts.sha256sum
-          printf '%s\n' "${BUILD_STAMP}" > version
-          cat Country.mmdb.sha256sum
-          cat artifacts.sha256sum
-          cat version
+          sha256sum Country.mmdb geoip.dat GeoLite2-ASN.mmdb geosite.dat > artifacts.sha256sum
+          date -u +%Y%m%d%H%M > version
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: verified-products
+          path: output/
+          if-no-files-found: error
+          retention-days: 3
 
-      # 空跑短路：产物与线上已发布的那份**逐字节相同**时，后面三步发布动作
-      # 全都没有意义。这在「改了 workflow/文档后 push」的场景下是常态 ——
-      # 每次都会重新构建出同一个文件，然后白白覆盖一次 Release、多推一个
-      # release 分支提交、多刷一次 jsDelivr。
-      #
-      # 取不到已发布的校验和（首次运行、网络抖动、release 被删）时一律按
-      # 「有变化」处理 —— 短路是优化，绝不能变成漏发的原因。
-      - name: Detect no-op build
-        id: delta
+  publish:
+    name: Publish verified products
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: verified-products
+          path: output
+      - name: Verify transfer and read version
         run: |
-          set -uo pipefail
+          set -euo pipefail
+          (cd output && sha256sum -c artifacts.sha256sum && sha256sum -c Country.mmdb.sha256sum)
+          echo "BUILD_STAMP=$(cat output/version)" >> "$GITHUB_ENV"
+      - name: Detect no-op across every published product
+        id: delta
+        run: python3 scripts/release_delta.py "$GITHUB_REPOSITORY" output >> "$GITHUB_OUTPUT"
 
-          new_sum=$(cut -d' ' -f1 ./output/Country.mmdb.sha256sum)
-          published=$(curl -fsSL --max-time 30 --retry 2 \
-            "https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/Country.mmdb.sha256sum" \
-            2>/dev/null | awk '{print $1}')
-
-          echo "本次构建:  ${new_sum}"
-          echo "线上已发布: ${published:-（取不到，按有变化处理）}"
-
-          if [ -n "${published}" ] && [ "${new_sum}" = "${published}" ]; then
-            echo "skip=1" >> "$GITHUB_OUTPUT"
-            echo "✅ 与已发布版本逐字节相同 → 跳过发布、跳过 jsDelivr 刷新"
-          else
-            echo "skip=0" >> "$GITHUB_OUTPUT"
-            echo "ℹ️ 产物有变化 → 正常发布"
-          fi
-
-      # 产物有两个去处，互不冲突：
-      #   ① release 分支 —— 供 jsDelivr 走 cdn.jsdelivr.net 分发。该分支是
-      #      「干净目录 git init + 孤立 + force-push」，永远只有 1 个提交，
-      #      仓库不会因为每天重建而膨胀。
-      #   ② GitHub Release 附件 —— 见下一步。附件**不占 git 仓库**，且
-      #      `releases/latest/download/<file>` 是永远指向最新一版的固定地址，
-      #      也不受 jsDelivr 的 20MB 单文件限制（本产物约 14.7MB，贴着上限）。
       - name: Push assets to release branch
         if: steps.delta.outputs.skip != '1'
         env:
@@ -244,7 +150,7 @@ jobs:
       # 不能用 `output/*` 之类的通配（会把 ./output/.git 也扫进来）。
       - name: Publish GitHub Release
         if: steps.delta.outputs.skip != '1'
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: GeoIP 产物（滚动更新）
@@ -265,6 +171,7 @@ jobs:
             | `GeoLite2-ASN.mmdb` | mihomo `asn` | iptoasn 全量 ASN（`autonomous_system_number` + 组织名） |
             | `geosite.dat` | mihomo `geosite` | 域名数据（category-ai / ozon / advertising），来自 laincat/Rules |
             | `artifacts.sha256sum` | — | 上述四个产物的校验和 |
+            | `inputs.json` | — | 输入快照哈希、Rules 与编译器版本 |
             | `version` | — | 构建时间戳（UTC，`YYYYMMDDHHMM`） |
 
             固定下载地址（永远指向最新一版，把文件名换成任意产物即可）：
@@ -277,6 +184,7 @@ jobs:
             output/GeoLite2-ASN.mmdb
             output/geosite.dat
             output/artifacts.sha256sum
+            output/inputs.json
             output/version
           make_latest: true
           overwrite_files: true
@@ -326,3 +234,4 @@ jobs:
             curl -sS -o /dev/null -w "purge ${file}: %{http_code}\n" \
               "https://purge.jsdelivr.net/gh/${GITHUB_REPOSITORY}@release/${file}" || true
           done
+

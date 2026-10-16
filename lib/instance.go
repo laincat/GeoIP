@@ -58,10 +58,29 @@ func (i *instance) initConfigFromBytes(content []byte) error {
 	config := new(config)
 
 	// Support JSON with comments and trailing commas
-	content, _ = hujson.Standardize(content)
+	var err error
+	content, err = hujson.Standardize(content)
+	if err != nil {
+		return err
+	}
 
 	if err := json.Unmarshal(content, &config); err != nil {
 		return err
+	}
+
+	if config == nil {
+		return errors.New("config must be a non-null object")
+	}
+	// Validate the complete configuration before mutating this instance.
+	for _, input := range config.Input {
+		if input == nil || input.converter == nil {
+			return errors.New("input entries must be non-null converters")
+		}
+	}
+	for _, output := range config.Output {
+		if output == nil || output.converter == nil {
+			return errors.New("output entries must be non-null converters")
+		}
 	}
 
 	for _, input := range config.Input {
@@ -126,3 +145,4 @@ func (i *instance) Run() error {
 
 	return nil
 }
+

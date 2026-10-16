@@ -199,6 +199,10 @@ func (c *CountryCSVIn) Input(container lib.Container) (lib.Container, error) {
 		}
 	}
 
+	if skipped > 0 {
+		return nil, fmt.Errorf("%s: rejected %d malformed rows out of %d", c.URI, skipped, rows)
+	}
+
 	if len(entries) == 0 {
 		return nil, fmt.Errorf(
 			"❌ [type %s | action %s] no entry is generated from %s (read %d data rows, skipped %d)",
@@ -239,7 +243,10 @@ func (c *CountryCSVIn) resolveColumns(reader *csv.Reader) (columnIndex, []string
 		}
 	}
 
-	if cols.start >= 0 && cols.end >= 0 {
+	if cols.start >= 0 || cols.end >= 0 || cols.country >= 0 {
+		if cols.start < 0 || cols.end < 0 || cols.country < 0 {
+			return columnIndex{}, nil, fmt.Errorf("country CSV header requires start_ip, end_ip, country")
+		}
 		return cols, nil, nil // 首行是表头，已消费
 	}
 
@@ -262,3 +269,4 @@ func parseAddr(record []string, idx int) (netip.Addr, bool) {
 	}
 	return lib.ParseAddrString(raw)
 }
+

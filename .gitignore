@@ -88,3 +88,7 @@ __pycache__/
 /.cache/
 .tmp_*/
 .tmp-probe*
+
+
+# Generated frozen local build configuration
+config.snapshot.json

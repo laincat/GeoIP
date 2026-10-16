@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/laincat/GeoIP/lib"
-	"go4.org/netipx"
 )
 
 const (
@@ -159,33 +158,16 @@ func (g *IPToASNIn) process(file string, entries map[string]*lib.Entry) error {
 			continue
 		}
 
-		fields := strings.SplitN(line, "\t", 5)
-		if len(fields) < 3 {
+		ipRange, asn, org, err := parseRow(line)
+		if err != nil {
+			return fmt.Errorf("%s: %w", file, err)
+		}
+		if asn == "0" || lib.SkipByIPType(ipRange, g.OnlyIPType) {
 			continue
 		}
-
-		// AS 号为 0 表示「已分配但未路由」，iptoasn 用它占位，不是真实 ASN
-		asn := strings.TrimSpace(fields[2])
-		if asn == "" || asn == "0" {
-			continue
-		}
-
+		_ = org
 		listNames, wanted := g.Want[asn]
 		if !wanted {
-			continue
-		}
-
-		start, ok := lib.ParseAddrString(fields[0])
-		if !ok {
-			continue
-		}
-		end, ok := lib.ParseAddrString(fields[1])
-		if !ok {
-			continue
-		}
-
-		ipRange := netipx.IPRangeFrom(start, end)
-		if !ipRange.IsValid() || lib.SkipByIPType(ipRange, g.OnlyIPType) {
 			continue
 		}
 
@@ -207,3 +189,4 @@ func (g *IPToASNIn) process(file string, entries map[string]*lib.Entry) error {
 
 	return nil
 }
+

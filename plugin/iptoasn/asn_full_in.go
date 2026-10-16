@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/laincat/GeoIP/lib"
-	"go4.org/netipx"
 )
 
 // 全量 ASN 输入：与 ipToASN 的区别在于不做 wantedList 过滤，而是把转储里
@@ -118,27 +117,11 @@ func (g *IPToASNFullIn) process(file string, entries map[string]*lib.Entry) erro
 			continue
 		}
 
-		fields := strings.SplitN(line, "\t", 5)
-		if len(fields) < 3 {
-			continue
+		ipRange, asn, org, err := parseRow(line)
+		if err != nil {
+			return fmt.Errorf("%s: %w", file, err)
 		}
-
-		asn := strings.TrimSpace(fields[2])
-		if asn == "" || asn == "0" {
-			continue
-		}
-
-		start, ok := lib.ParseAddrString(fields[0])
-		if !ok {
-			continue
-		}
-		end, ok := lib.ParseAddrString(fields[1])
-		if !ok {
-			continue
-		}
-
-		ipRange := netipx.IPRangeFrom(start, end)
-		if !ipRange.IsValid() || lib.SkipByIPType(ipRange, g.OnlyIPType) {
+		if asn == "0" || lib.SkipByIPType(ipRange, g.OnlyIPType) {
 			continue
 		}
 
@@ -149,11 +132,7 @@ func (g *IPToASNFullIn) process(file string, entries map[string]*lib.Entry) erro
 			entries[name] = entry
 		}
 
-		// 组织名在 TSV 第 5 列；某些行可能缺列，此时退化为空字符串。
-		org := ""
-		if len(fields) >= 5 {
-			org = strings.TrimSpace(fields[4])
-		}
+
 		if _, ok := entry.GetExtra("asn_org"); !ok {
 			entry.SetExtra("asn_org", org)
 		}

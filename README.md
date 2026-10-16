@@ -45,10 +45,10 @@ https://cdn.jsdelivr.net/gh/laincat/GeoIP@release/Country.mmdb
 CNB 镜像（国内直连更友好）：
 
 ```
-https://cnb.cool/laincat/GeoIP/-/raw/main/Country.mmdb
-https://cnb.cool/laincat/GeoIP/-/raw/main/geoip.dat
-https://cnb.cool/laincat/GeoIP/-/raw/main/GeoLite2-ASN.mmdb
-https://cnb.cool/laincat/GeoIP/-/raw/main/geosite.dat
+https://cnb.cool/laincat/GeoIP/-/releases/download/geoip/Country.mmdb
+https://cnb.cool/laincat/GeoIP/-/releases/download/geoip/geoip.dat
+https://cnb.cool/laincat/GeoIP/-/releases/download/geoip/GeoLite2-ASN.mmdb
+https://cnb.cool/laincat/GeoIP/-/releases/download/geoip/geosite.dat
 ```
 
 > CNB 与 GitHub 两侧都用 `main` 分支，内容一致。
@@ -108,7 +108,7 @@ geox-url:
 |---|---|---|
 | `category-ai` | AI 服务域名 | Rules 的 `Surge/Ruleset/AI.list` |
 | `ozon` | Ozon 电商域名 | Rules 的 `Surge/Ruleset/Ozon.list` |
-| `advertising` | 广告 / 追踪域名 | Rules 的 `Surge/Advertising/Advertising.list` |
+| `advertising` | 广告 / 追踪域名 | Rules 的 `Surge/Advertising/Advertising.Reject.list` |
 
 ## 数据来源
 
@@ -206,7 +206,7 @@ python3 ./scripts/verify_mmdb_vs_source.py ./output/Country.mmdb --csv ./data/ip
 export SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)
 ```
 
-CI 取当前修订的提交时间作为该值，因此重跑同一个提交不会改变产物校验和。不设该变量时行为与之前一致（用当前时间）。CI 里另有 `mmdbverify`（二进制结构）+ `verify_mmdb_vs_source.py`（内容与源一致）两道校验钉死这个性质。
+CI 取当前修订的提交时间作为该值，因此同一提交配合相同输入快照可保持产物校验和。不设该变量时行为与之前一致（用当前时间）。CI 里另有 `mmdbverify`（二进制结构）+ `verify_mmdb_vs_source.py`（内容与源一致）两道校验钉死这个性质。
 
 ## 自动化
 
@@ -214,7 +214,7 @@ CI 取当前修订的提交时间作为该值，因此重跑同一个提交不�
 
 **发布到两个去处，都不占仓库体积。** Release 附件的 tag 固定为 `geoip`，每次覆盖同名附件，永远只有一条 Release、一个 tag；`release` 分支则是「干净目录 git init + 孤立 + force-push」，永远只有 1 个提交，供 jsDelivr 读。仓库另有 CNB 镜像同步。
 
-**产物没变就不发布。** 构建出的 `Country.mmdb` 与线上那份逐字节相同时（改了文档或 workflow 后 push 是常见场景），后面推分支、发 Release、刷 jsDelivr 三步全部跳过。取不到线上校验和时一律按「有变化」处理 —— 短路是优化，不能变成漏发的原因。
+**产物没变就不发布。** 全部四种二进制、校验文件和输入清单与线上逐字节一致，且所需附件齐全时（改了文档或 workflow 后 push 是常见场景），后面推分支、发 Release、刷 jsDelivr 三步全部跳过。取不到线上附件或元数据时一律按「有变化」处理 —— 短路是优化，不能变成漏发的原因。
 
 ## 与上游的关系
 
@@ -233,3 +233,30 @@ CI 取当前修订的提交时间作为该值，因此重跑同一个提交不�
 
 - 代码：[GPL-3.0](LICENSE-GPL)
 - 数据：[CC BY-SA 4.0](LICENSE)
+
+
+### 构建与验证安全（2026-10）
+
+- `build` 只读权限、checkout 不保存凭据；独立 `publish` job 才持有 contents:write，仅发布通过校验的产物。
+- v2fly 编译器固定到 `dd4e3c080cee602512768e8109f89fafaa94b8ca`，Go 依赖按该版本的 go.sum 校验。Rules 每次只解析一个 commit，三个域名列表取自同一版本。
+- 裸域名编译为 `full:`（精确匹配），前导点域名编译为 `domain:`（含子域名）。拒绝不合法 DNS 标签。
+- 官方 IP 列表只获取一次：`python3 scripts/source_snapshot.py snapshot` 生成 `config.snapshot.json`；之后转换、交叉校验及重复构建都用该快照。修改配置后应重新生成快照。
+- 全量发布包含 `Country.mmdb`、`geoip.dat`、`GeoLite2-ASN.mmdb`、`geosite.dat`。`artifacts.sha256sum` 现在包含全部四项，保留单独 Country 校验文件兼容旧客户端。
+- `inputs.json` 记录输入 SHA-256、Rules commit 和编译器 commit（不含 token）。新旧版本只有所有必需文件都存在且内容一致才跳过发布；`version` 的时间戳变化不触发发布。
+- 生产门禁验证两种 MMDB 结构、ASN 边界/组织名、DAT 国家/覆盖网络、geosite 精确/后缀语义，以及四种产物在同一输入快照下的字节可复现性。国家覆盖规则必须满足具体 IP 网段成员关系与覆盖优先级。
+- 离线回归：`python3 -m unittest discover -s scripts -p 'test_*.py'`；Go 并发回归：`go test -race ./...`。`Container` 不提供任意并发写保证，Loop 返回同步快照，允许同一调用方遍历时删除。
+- protobuf 源文件已恢复多行格式；再生命令：`protoc --go_out=. --go_opt=paths=source_relative plugin/v2ray/geoip.proto`（从仓库根目录运行）。
+
+本地完整构建先按上文下载数据，再执行：
+
+```sh
+python3 scripts/source_snapshot.py snapshot
+./geoip convert -c config.snapshot.json
+./geoip convert -c config-asn.json
+bash scripts/build-geosite.sh
+python3 scripts/verify_mmdb_vs_source.py output/Country.mmdb --config config.snapshot.json
+python3 scripts/verify_products.py
+python3 scripts/source_snapshot.py manifest
+```
+
+输入快照只保证同一次构建/重复构建使用同一份数据。`inputs.json` 是可核对的来源哈希，不是输入归档；若要在未来复现旧版本，还需自行保留对应输入快照。

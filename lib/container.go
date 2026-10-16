@@ -50,13 +50,13 @@ func (c *container) Len() int {
 }
 
 func (c *container) Loop() <-chan *Entry {
-	ch := make(chan *Entry, 300)
-	go func() {
-		for _, val := range c.entries {
-			ch <- val
-		}
-		close(ch)
-	}()
+	// Snapshot synchronously before callers can remove entries. No goroutine
+	// remains blocked if a consumer stops early. Container is not thread-safe.
+	ch := make(chan *Entry, len(c.entries))
+	for _, val := range c.entries {
+		ch <- val
+	}
+	close(ch)
 	return ch
 }
 
@@ -303,3 +303,4 @@ func (c *container) lookup(addrOrPrefix any, iptype IPType, searchList ...string
 
 	return result, isfound, nil
 }
+
