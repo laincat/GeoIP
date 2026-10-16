@@ -1,0 +1,14 @@
+{
+  "files": {
+    "Country.mmdb": "0f401545973c64e679ba722ed3c5390f28b58dd7c67375ab2a726ba898ff96cf",
+    "Country.mmdb.sha256sum": "66d3d34ecc24637c3e93a7a5a215a4a653fb348c0838e426c3fafcfe0d3461e7",
+    "GeoLite2-ASN.mmdb": "02b9b77afa6f72ce9ad77c9d47607a16a3939fb6d3e1bf8335e1cfd70f5b318c",
+    "artifacts.sha256sum": "6ca3cd6a08a8a4884ce00fa7d089bb8384a5d904a416203e0c2c072c1bf8f4c2",
+    "geoip.dat": "b03b7ec403b118973ee5aa7db99ce9c6b853100b234ce950f812aec67a6a7998",
+    "geosite.dat": "b3444f02e233ef599656b11d2ad328dc1202342838637d4f5b39830c31e16e9b",
+    "inputs.json": "31bd35f53cc93b294db34c8c9f93917c407e51a9a2500f664aca4ba5400851ef",
+    "version": "aa0a2bab6cd26a0e768d6a84fd800b48b56a03be979acc6b5688517d56b980b5"
+  },
+  "schema": 1,
+  "source_sha": "22c3e12a204136f51c4b1d4e98e4abb67b44f3fc"
+}
