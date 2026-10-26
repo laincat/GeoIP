@@ -16,7 +16,6 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  MMDBVERIFY_VERSION: v1.0.0
   RELEASE_TAG: geoip
 
 jobs:
@@ -66,9 +65,8 @@ jobs:
       - name: Verify both MMDB structures
         run: |
           set -euo pipefail
-          go install "github.com/maxmind/mmdbverify@${MMDBVERIFY_VERSION}"
-          "$(go env GOPATH)/bin/mmdbverify" -file output/Country.mmdb
-          "$(go env GOPATH)/bin/mmdbverify" -file output/GeoLite2-ASN.mmdb
+          go tool mmdbverify -file output/Country.mmdb
+          go tool mmdbverify -file output/GeoLite2-ASN.mmdb
       - name: Verify independent content and rule semantics
         run: |
           set -euo pipefail

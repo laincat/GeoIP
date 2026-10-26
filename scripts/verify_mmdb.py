@@ -62,7 +62,7 @@ def main() -> None:
     try:
         import maxminddb
     except ImportError:
-        fail("缺少 maxminddb，请先 `pip install maxminddb==2.6.1`")
+        fail("缺少 maxminddb，请先 `pip install -r requirements-ci.txt`")
 
     try:
         db = maxminddb.open_database(path)
