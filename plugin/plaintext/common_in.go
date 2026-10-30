@@ -8,7 +8,7 @@ import (
 
 	"github.com/laincat/GeoIP/lib"
 	"github.com/tidwall/gjson"
-	"gopkg.in/yaml.v2"
+	"go.yaml.in/yaml/v3"
 )
 
 type TextIn struct {
