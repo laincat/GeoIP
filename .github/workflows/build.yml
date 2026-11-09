@@ -150,7 +150,7 @@ jobs:
       # 不能用 `output/*` 之类的通配（会把 ./output/.git 也扫进来）。
       - name: Publish GitHub Release
         if: steps.delta.outputs.skip != '1'
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: GeoIP 产物（滚动更新）
@@ -193,7 +193,7 @@ jobs:
       # Seal is uploaded only after every binary/checksum upload succeeds.
       - name: Publish release snapshot seal last
         if: steps.delta.outputs.skip != '1'
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           files: output/snapshot-manifest.json
